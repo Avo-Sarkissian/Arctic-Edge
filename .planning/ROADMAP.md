@@ -29,11 +29,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Sensor frames are persisted in batches to SwiftData with no main-thread blocking observable as lag or hangs
   4. Sensor capture remains active when the screen locks, verified by confirming frames are recorded during a screen-off period
   5. App detects and recovers an orphaned HKWorkoutSession on relaunch, restoring capture state without user intervention
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: MotionManager actor, FilteredFrame struct, high-pass biquad filter, RingBuffer actor, StreamBroadcaster actor
-- [ ] 01-02: WorkoutSessionManager, PersistenceService actor, SwiftData schema (FrameRecord + RunRecord with #Index), emergency flush + orphan recovery
+- [ ] 01-01-PLAN.md — Motion actors: FilteredFrame struct, BiquadHighPassFilter (vDSP), RingBuffer, MotionManager, StreamBroadcaster; build settings (SWIFT_STRICT_CONCURRENCY = complete); test stubs + implementation
+- [ ] 01-02-PLAN.md — Session layer: SwiftData schema (FrameRecord + RunRecord with #Index), PersistenceService (@ModelActor, batched flush), WorkoutSessionManager (HKWorkoutSession, sentinel), emergency flush, orphan recovery, app pipeline wiring
 
 ### Phase 2: Activity Detection & Run Management
 **Goal**: The app automatically segments skiing from chairlift rides, creating clean per-run records without user input
@@ -86,7 +86,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Motion Engine & Session Foundation | 0/2 | Not started | - |
+| 1. Motion Engine & Session Foundation | 0/2 | Ready to execute | - |
 | 2. Activity Detection & Run Management | 0/1 | Not started | - |
 | 3. Live Telemetry & Post-Run Analysis | 0/2 | Not started | - |
 | 4. Hardening & Field Validation | 0/1 | Not started | - |
