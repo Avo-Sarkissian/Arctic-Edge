@@ -15,11 +15,11 @@
 
 ### Session Management
 
-- [ ] **SESS-01**: HKWorkoutSession provides background CPU budget, keeping sensor capture active when screen locks mid-run
-- [ ] **SESS-02**: SwiftData persists sensor frames in batches via background ModelContext — never per-frame; flush every 200-500 samples
-- [ ] **SESS-03**: SwiftData schema defines FrameRecord (timestamp, runID, filtered values) with #Index on timestamp and runID for fast post-run queries
-- [ ] **SESS-04**: App performs emergency data flush on applicationDidEnterBackground and applicationWillTerminate to prevent data loss
-- [ ] **SESS-05**: App detects and recovers orphaned HKWorkoutSession on launch (UserDefaults sentinel pattern)
+- [x] **SESS-01**: HKWorkoutSession provides background CPU budget, keeping sensor capture active when screen locks mid-run
+- [x] **SESS-02**: SwiftData persists sensor frames in batches via background ModelContext — never per-frame; flush every 200-500 samples
+- [x] **SESS-03**: SwiftData schema defines FrameRecord (timestamp, runID, filtered values) with #Index on timestamp and runID for fast post-run queries
+- [x] **SESS-04**: App performs emergency data flush on applicationDidEnterBackground and applicationWillTerminate to prevent data loss
+- [x] **SESS-05**: App detects and recovers orphaned HKWorkoutSession on launch (UserDefaults sentinel pattern)
 
 ### Activity Detection
 
@@ -80,11 +80,11 @@
 | MOTN-03 | Phase 1 | Complete |
 | MOTN-04 | Phase 1 | Complete |
 | MOTN-05 | Phase 1 | Complete |
-| SESS-01 | Phase 1 | Pending |
-| SESS-02 | Phase 1 | Pending |
-| SESS-03 | Phase 1 | Pending |
-| SESS-04 | Phase 1 | Pending |
-| SESS-05 | Phase 1 | Pending |
+| SESS-01 | Phase 1 | Complete |
+| SESS-02 | Phase 1 | Complete |
+| SESS-03 | Phase 1 | Complete |
+| SESS-04 | Phase 1 | Complete |
+| SESS-05 | Phase 1 | Complete |
 | DETC-01 | Phase 2 | Pending |
 | DETC-02 | Phase 2 | Pending |
 | DETC-03 | Phase 2 | Pending |

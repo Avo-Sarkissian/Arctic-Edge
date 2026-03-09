@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Completed 01-01-PLAN.md - Motion Engine (FilteredFrame, BiquadHighPassFilter, RingBuffer, MotionManager, StreamBroadcaster)
-last_updated: "2026-03-09T16:35:40.056Z"
-last_activity: 2026-03-08 — Roadmap created
+status: executing
+stopped_at: Completed 01-02-PLAN.md - Session and Persistence Layer (FrameRecord, RunRecord, PersistenceService, WorkoutSessionManager, AppModel pipeline wiring)
+last_updated: "2026-03-09T17:34:15.130Z"
+last_activity: 2026-03-09 — Plan 01-01 completed (Motion Engine)
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 50
 ---
 
@@ -50,6 +50,7 @@ Progress: [█████░░░░░] 50%
 - Trend: establishing baseline
 
 *Updated after each plan completion*
+| Phase 01-motion-engine-and-session-foundation P02 | 54 | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ Recent decisions affecting current work:
 - [Phase 01]: MotionDataSource protocol members nonisolated to avoid SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor inference on non-UI types
 - [Phase 01]: 0.3Hz rejection threshold 15% (not 40dB): 2nd-order Butterworth at 1.0Hz cutoff achieves 21dB at 0.3Hz; calibrate fc with real ski data
 - [Phase 01]: MotionManager.broadcaster is optional to break StreamBroadcaster circular init dependency
+- [Phase 01]: AppModel @Observable class pattern: notification closures need [weak self] capture, impossible with struct; class required for pipeline coordinator
+- [Phase 01]: WorkoutSessionDelegate uses NSLock + nonisolated(unsafe): NSObject conformance prevents actor designation; manual locking required for CheckedContinuation bridge
+- [Phase 01]: Sentinel set before awaiting .running in WorkoutSessionManager.start() to close crash window between startActivity and delegate callback
 
 ### Pending Todos
 
@@ -80,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T16:35:40.054Z
-Stopped at: Completed 01-01-PLAN.md - Motion Engine (FilteredFrame, BiquadHighPassFilter, RingBuffer, MotionManager, StreamBroadcaster)
+Last session: 2026-03-09T17:34:15.128Z
+Stopped at: Completed 01-02-PLAN.md - Session and Persistence Layer (FrameRecord, RunRecord, PersistenceService, WorkoutSessionManager, AppModel pipeline wiring)
 Resume file: None
