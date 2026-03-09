@@ -85,9 +85,9 @@ struct StreamBroadcasterTests {
         let broadcaster2 = StreamBroadcaster(motionManager: manager2)
         await manager2.setStreamBroadcaster(broadcaster2)
 
-        // Add two consumers and verify count is 2.
-        _ = await broadcaster2.makeStream()
-        _ = await broadcaster2.makeStream()
+        // Assign streams to named locals so ARC does not fire onTermination immediately.
+        let s1 = await broadcaster2.makeStream()
+        let s2 = await broadcaster2.makeStream()
         let afterTwo = await broadcaster2.continuationCount
         #expect(afterTwo == 2, "Should have 2 active continuations after makeStream x2, got \(afterTwo)")
 
@@ -95,5 +95,8 @@ struct StreamBroadcasterTests {
         await broadcaster2.stop()
         let afterStop = await broadcaster2.continuationCount
         #expect(afterStop == 0, "All continuations should be removed after stop(), got \(afterStop)")
+
+        // Keep s1 and s2 in scope until after all assertions complete.
+        _ = (s1, s2)
     }
 }
