@@ -101,8 +101,9 @@
 **Coverage:**
 - v1 requirements: 22 total
 - Mapped to phases: 22
-- Unmapped: 0 ✓
+- Unmapped: 0 (verified against ROADMAP.md)
+- Phase 4 note: Hardening and field validation phase — produces calibration data and power management; no discrete pre-defined requirement IDs
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after initial definition*
+*Last updated: 2026-03-08 after roadmap creation*
