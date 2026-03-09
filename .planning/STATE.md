@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-02-PLAN.md - Session and Persistence Layer (FrameRecord, RunRecord, PersistenceService, WorkoutSessionManager, AppModel pipeline wiring)
-last_updated: "2026-03-09T17:34:15.130Z"
+stopped_at: Completed 01-GAP-01-PLAN.md - Motion test gap closure (MOTN-01, MOTN-04)
+last_updated: "2026-03-09T18:02:51.796Z"
 last_activity: 2026-03-09 — Plan 01-01 completed (Motion Engine)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 3
+  completed_plans: 3
   percent: 50
 ---
 
@@ -70,6 +70,8 @@ Recent decisions affecting current work:
 - [Phase 01]: AppModel @Observable class pattern: notification closures need [weak self] capture, impossible with struct; class required for pipeline coordinator
 - [Phase 01]: WorkoutSessionDelegate uses NSLock + nonisolated(unsafe): NSObject conformance prevents actor designation; manual locking required for CheckedContinuation bridge
 - [Phase 01]: Sentinel set before awaiting .running in WorkoutSessionManager.start() to close crash window between startActivity and delegate callback
+- [Phase 01-motion-engine-and-session-foundation]: CMDeviceMotion() bare init is unsafe in simulator -- inject frames via MotionManager.receive() (promoted from private to internal) to avoid EXC_BAD_ACCESS
+- [Phase 01-motion-engine-and-session-foundation]: Named AsyncStream locals (let s1, s2) plus _ = (s1, s2) keep continuations alive through assertions, preventing ARC-triggered onTermination race in testConsumerCancellationCleansUp
 
 ### Pending Todos
 
@@ -84,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T17:34:15.128Z
-Stopped at: Completed 01-02-PLAN.md - Session and Persistence Layer (FrameRecord, RunRecord, PersistenceService, WorkoutSessionManager, AppModel pipeline wiring)
+Last session: 2026-03-09T18:02:42.911Z
+Stopped at: Completed 01-GAP-01-PLAN.md - Motion test gap closure (MOTN-01, MOTN-04)
 Resume file: None
