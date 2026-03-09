@@ -104,7 +104,8 @@ actor MotionManager {
     }
 
     // receive() is actor-isolated. Safe to access filter (actor-owned, non-Sendable).
-    private func receive(
+    // Internal (not private) so that the test suite can inject frames without a live CMDeviceMotion.
+    func receive(
         timestamp: TimeInterval,
         runID: UUID,
         pitch: Double, roll: Double, yaw: Double,
