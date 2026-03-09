@@ -7,11 +7,11 @@
 
 ### Motion Engine
 
-- [ ] **MOTN-01**: App captures CMDeviceMotion at 100Hz via MotionManager actor using Swift 7 AsyncStream
-- [ ] **MOTN-02**: High-pass biquad filter (Accelerate/vDSP) isolates carve-pressure signal — preserve >2Hz, reject <0.5Hz
-- [ ] **MOTN-03**: In-memory ring buffer stores last ~10 seconds of filtered frames (1000 samples) with synchronous, transactional drain (no awaits inside drain)
-- [ ] **MOTN-04**: StreamBroadcaster actor fans out the sensor stream to LiveViewModel and ActivityClassifier simultaneously without calling CMMotionManager start twice
-- [ ] **MOTN-05**: Thermal-aware throttling gracefully degrades sample rate (100Hz to 50Hz to 25Hz) when ProcessInfo.thermalState reaches critical
+- [x] **MOTN-01**: App captures CMDeviceMotion at 100Hz via MotionManager actor using Swift 7 AsyncStream
+- [x] **MOTN-02**: High-pass biquad filter (Accelerate/vDSP) isolates carve-pressure signal — preserve >2Hz, reject <0.5Hz
+- [x] **MOTN-03**: In-memory ring buffer stores last ~10 seconds of filtered frames (1000 samples) with synchronous, transactional drain (no awaits inside drain)
+- [x] **MOTN-04**: StreamBroadcaster actor fans out the sensor stream to LiveViewModel and ActivityClassifier simultaneously without calling CMMotionManager start twice
+- [x] **MOTN-05**: Thermal-aware throttling gracefully degrades sample rate (100Hz to 50Hz to 25Hz) when ProcessInfo.thermalState reaches critical
 
 ### Session Management
 
@@ -75,11 +75,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MOTN-01 | Phase 1 | Pending |
-| MOTN-02 | Phase 1 | Pending |
-| MOTN-03 | Phase 1 | Pending |
-| MOTN-04 | Phase 1 | Pending |
-| MOTN-05 | Phase 1 | Pending |
+| MOTN-01 | Phase 1 | Complete |
+| MOTN-02 | Phase 1 | Complete |
+| MOTN-03 | Phase 1 | Complete |
+| MOTN-04 | Phase 1 | Complete |
+| MOTN-05 | Phase 1 | Complete |
 | SESS-01 | Phase 1 | Pending |
 | SESS-02 | Phase 1 | Pending |
 | SESS-03 | Phase 1 | Pending |
