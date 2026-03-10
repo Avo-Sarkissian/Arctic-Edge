@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Checkpoint: 02-03 awaiting human-verify — UI checkpoint before final commit"
-last_updated: "2026-03-10T01:49:22.754Z"
+stopped_at: Completed 02-03-PLAN.md — plan fully resolved including HealthKit entitlement and Arctic Dark UI redesign
+last_updated: "2026-03-10T02:06:32.390Z"
 last_activity: 2026-03-09 — Plan 01-01 completed (Motion Engine)
 progress:
   total_phases: 4
@@ -54,6 +54,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02-activity-detection-run-management P01 | 10 | 3 tasks | 7 files |
 | Phase 02-activity-detection-run-management P02 | 11 | 3 tasks | 2 files |
 | Phase 02-activity-detection-run-management P03 | 30 | 2 tasks | 4 files |
+| Phase 02-activity-detection-run-management P03 | 65 | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase 02-activity-detection-run-management]: TestClock actor with nonisolated(unsafe) var cache: Swift 6 rejects mutable var captured in @Sendable closure — actor owns the Date, unsafeCurrentDate provides synchronous read path for the clock closure
 - [Phase 02-activity-detection-run-management]: HUD polling (Task + while loop at 100ms) bridges ActivityClassifier actor state to @Observable AppModel at 10Hz without Combine or protocol changes
 - [Phase 02-activity-detection-run-management]: classifierStateLabel, latestActivityLabel, hysteresisProgress added as actor-isolated computed properties on ActivityClassifier — string conversion stays with the type that owns the data
+- [Phase 02-activity-detection-run-management]: Canvas-drawn topographic lines replace image texture — zero asset dependencies, generative via sinusoidal path math
+- [Phase 02-activity-detection-run-management]: HealthKit entitlement placed in ArcticEdge/ArcticEdge.entitlements, wired via CODE_SIGN_ENTITLEMENTS in pbxproj for both Debug and Release
+- [Phase 02-activity-detection-run-management]: ContentView Start/End Day button uses two distinct layouts (gradient fill vs outlined) not conditional tint — structural difference warrants separate label views
 
 ### Pending Todos
 
@@ -96,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-10T01:49:22.751Z
-Stopped at: Checkpoint: 02-03 awaiting human-verify — UI checkpoint before final commit
+Last session: 2026-03-10T02:06:32.388Z
+Stopped at: Completed 02-03-PLAN.md — plan fully resolved including HealthKit entitlement and Arctic Dark UI redesign
 Resume file: None
