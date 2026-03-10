@@ -44,16 +44,11 @@ actor ActivityClassifier {
     let runEndSeconds: Double
     let varianceWindowSize: Int
 
-    /// Chairlift GPS speed range (m/s)
-    private let liftSpeedMin: Double = 0.5
-    private let liftSpeedMax: Double = 7.0
-
-    /// Skiing minimum GPS speed (m/s)
-    private let skiingSpeedMin: Double = 3.0
-
-    /// G-force variance thresholds (g²)
-    private let lowVarianceThreshold: Double = 0.01     // chairlift: variance < this
-    private let highVarianceThreshold: Double = 0.005   // skiing:    variance > this
+    private let liftSpeedMin: Double = 0.5      // m/s chairlift lower bound
+    private let liftSpeedMax: Double = 7.0      // m/s chairlift upper bound
+    private let skiingSpeedMin: Double = 3.0    // m/s skiing lower bound
+    private let lowVarianceThreshold: Double = 0.01   // g² — chairlift: variance < this
+    private let highVarianceThreshold: Double = 0.005 // g² — skiing:    variance > this
 
     // MARK: - Injectable clock
 
@@ -62,18 +57,16 @@ actor ActivityClassifier {
     // MARK: - Mutable state
 
     private(set) var state: ClassifierState = .idle
-    private var pendingSkiingOnsetAt: Date? = nil
-    private var pendingRunEndAt: Date? = nil
+    private var pendingSkiingOnsetAt: Date?
+    private var pendingRunEndAt: Date?
     private var pendingFrames: [FilteredFrame] = []
-    private(set) var currentRunID: UUID? = nil
+    private(set) var currentRunID: UUID?
 
     private var varianceWindow: [Double] = []
-    private(set) var latestGPS: GPSReading? = nil
-    private(set) var latestActivity: ActivitySnapshot? = nil
+    private(set) var latestGPS: GPSReading?
+    private(set) var latestActivity: ActivitySnapshot?
 
     private var consumptionTasks: [Task<Void, Never>] = []
-
-    /// Boxed persistence service — holds any PersistenceServiceProtocol-conforming actor.
     private var persistence: (any PersistenceServiceProtocol)?
 
     // MARK: - Init
@@ -100,45 +93,28 @@ actor ActivityClassifier {
         activityStream: AsyncStream<ActivitySnapshot>,
         persistenceService: PersistenceService
     ) {
-        self.persistence = persistenceService
+        persistence = persistenceService
         state = .chairlift
-        launchConsumptionTasks(frameStream: frameStream, gpsStream: gpsStream, activityStream: activityStream)
-    }
 
-    private func launchConsumptionTasks(
-        frameStream: AsyncStream<FilteredFrame>,
-        gpsStream: AsyncStream<GPSReading>,
-        activityStream: AsyncStream<ActivitySnapshot>
-    ) {
         let gpsTask = Task { [weak self] in
-            for await gps in gpsStream {
-                await self?.updateGPS(gps)
-            }
+            for await gps in gpsStream { await self?.setGPS(gps) }
         }
         let activityTask = Task { [weak self] in
-            for await activity in activityStream {
-                await self?.updateActivity(activity)
-            }
+            for await activity in activityStream { await self?.setActivity(activity) }
         }
         let frameTask = Task { [weak self] in
-            for await frame in frameStream {
-                await self?.processFrame(frame)
-            }
+            for await frame in frameStream { await self?.processFrame(frame) }
         }
         consumptionTasks = [gpsTask, activityTask, frameTask]
     }
 
     /// Tears down the classifier and finalizes any open RunRecord.
     func endDay() async {
-        for task in consumptionTasks {
-            task.cancel()
-        }
+        consumptionTasks.forEach { $0.cancel() }
         consumptionTasks = []
-
         if state == .skiing, let runID = currentRunID {
             try? await persistence?.finalizeRunRecord(runID: runID, endTimestamp: clock())
         }
-
         resetAllState()
     }
 
@@ -154,75 +130,47 @@ actor ActivityClassifier {
         persistence = nil
     }
 
-    // MARK: - Stream update helpers
-
-    private func updateGPS(_ gps: GPSReading) {
-        latestGPS = gps
-    }
-
-    private func updateActivity(_ activity: ActivitySnapshot) {
-        latestActivity = activity
-    }
-
     // MARK: - Frame processing
 
     func processFrame(_ frame: FilteredFrame) async {
-        // Update g-force variance window with the magnitude of user acceleration.
-        let g = (frame.userAccelX * frame.userAccelX +
-                 frame.userAccelY * frame.userAccelY +
-                 frame.userAccelZ * frame.userAccelZ).squareRoot()
+        // Append g-force magnitude to the rolling variance window.
+        let g = hypot(frame.userAccelX, hypot(frame.userAccelY, frame.userAccelZ))
         varianceWindow.append(g)
         if varianceWindow.count > varianceWindowSize {
             varianceWindow.removeFirst()
         }
 
         let now = clock()
-
         switch state {
-        case .chairlift:
-            evaluateSkiingOnset(frame: frame, now: now)
-        case .skiing:
-            evaluateRunEnd(now: now)
-        case .idle:
-            break
+        case .chairlift: evaluateSkiingOnset(frame: frame, now: now)
+        case .skiing:    evaluateRunEnd(now: now)
+        case .idle:      break
         }
     }
 
     // MARK: - Skiing onset
 
     private func evaluateSkiingOnset(frame: FilteredFrame, now: Date) {
-        if skiingSignalActive() {
-            if pendingSkiingOnsetAt == nil {
-                pendingSkiingOnsetAt = now
-            }
-            let elapsed = now.timeIntervalSince(pendingSkiingOnsetAt!)
-            if elapsed >= skiingOnsetSeconds {
-                confirmSkiingTransition()
-            } else {
-                pendingFrames.append(frame)
-            }
-        } else {
+        guard skiingSignalActive() else {
             pendingSkiingOnsetAt = nil
             pendingFrames = []
+            return
+        }
+        if pendingSkiingOnsetAt == nil { pendingSkiingOnsetAt = now }
+        let elapsed = now.timeIntervalSince(pendingSkiingOnsetAt!)
+        if elapsed >= skiingOnsetSeconds {
+            confirmSkiingTransition()
+        } else {
+            pendingFrames.append(frame)
         }
     }
 
     private func confirmSkiingTransition() {
         let runID = UUID()
         currentRunID = runID
-
-        let startTimestamp: Date
-        if let firstFrame = pendingFrames.first {
-            startTimestamp = Date(timeIntervalSince1970: firstFrame.timestamp)
-        } else {
-            startTimestamp = clock()
-        }
-
+        let startTimestamp = pendingFrames.first.map { Date(timeIntervalSince1970: $0.timestamp) } ?? clock()
         let service = persistence
-        Task {
-            try? await service?.createRunRecord(runID: runID, startTimestamp: startTimestamp)
-        }
-
+        Task { try? await service?.createRunRecord(runID: runID, startTimestamp: startTimestamp) }
         state = .skiing
         pendingSkiingOnsetAt = nil
         pendingFrames = []
@@ -231,15 +179,13 @@ actor ActivityClassifier {
     // MARK: - Run end
 
     private func evaluateRunEnd(now: Date) {
-        if chairliftSignalActive(at: now) {
-            if pendingRunEndAt == nil {
-                pendingRunEndAt = now
-            }
-            if now.timeIntervalSince(pendingRunEndAt!) >= runEndSeconds {
-                confirmChairliftTransition()
-            }
-        } else {
+        guard chairliftSignalActive() else {
             pendingRunEndAt = nil
+            return
+        }
+        if pendingRunEndAt == nil { pendingRunEndAt = now }
+        if now.timeIntervalSince(pendingRunEndAt!) >= runEndSeconds {
+            confirmChairliftTransition()
         }
     }
 
@@ -247,9 +193,7 @@ actor ActivityClassifier {
         if let runID = currentRunID {
             let service = persistence
             let endTime = clock()
-            Task {
-                try? await service?.finalizeRunRecord(runID: runID, endTimestamp: endTime)
-            }
+            Task { try? await service?.finalizeRunRecord(runID: runID, endTimestamp: endTime) }
         }
         currentRunID = nil
         state = .chairlift
@@ -259,102 +203,63 @@ actor ActivityClassifier {
     // MARK: - Signal predicates
 
     /// True when all three chairlift signals are active (or GPS is blacked out in chairlift state).
-    func chairliftSignalActive(at now: Date) -> Bool {
-        // Signal 1: automotive motion activity with medium or high confidence.
+    func chairliftSignalActive() -> Bool {
         let isAutomotive = (latestActivity?.automotive == true) &&
                            (latestActivity?.confidence != .low)
-
-        // Signal 2: GPS speed in lift range, with blackout tolerance in chairlift state.
         let speedInLiftRange: Bool
-        let gpsBlackout = latestGPS == nil || (latestGPS?.horizontalAccuracy ?? -1) < 0
         if gpsBlackout {
-            // Waive the GPS gate while in chairlift state (tunnel / tree cover tolerance).
+            // Sustain chairlift state through GPS outages (tunnels, tree cover).
             speedInLiftRange = (state == .chairlift)
         } else {
             let speed = latestGPS!.speed
             speedInLiftRange = speed >= liftSpeedMin && speed <= liftSpeedMax
         }
-
-        // Signal 3: Low g-force variance (smooth chairlift ride).
-        let isLowVariance = gForceVariance < lowVarianceThreshold
-
-        return isAutomotive && speedInLiftRange && isLowVariance
+        return isAutomotive && speedInLiftRange && (gForceVariance < lowVarianceThreshold)
     }
 
     /// True when skiing signals are active: high speed, high variance, not automotive.
     func skiingSignalActive() -> Bool {
-        // Signal 1: GPS speed at or above skiing threshold, or GPS unavailable.
-        let speedOK: Bool
-        let gpsBlackout = latestGPS == nil || (latestGPS?.horizontalAccuracy ?? -1) < 0
-        if gpsBlackout {
-            speedOK = true
-        } else {
-            speedOK = latestGPS!.speed >= skiingSpeedMin
-        }
-
-        // Signal 2: High g-force variance (dynamic carving motion).
-        let isHighVariance = gForceVariance > highVarianceThreshold
-
-        // Signal 3: Not automotive (or low-confidence automotive classification).
+        let speedOK = gpsBlackout || latestGPS!.speed >= skiingSpeedMin
         let notAutomotive = !(latestActivity?.automotive ?? false) ||
-                            (latestActivity?.confidence == .low)
-
-        return speedOK && isHighVariance && notAutomotive
+                             (latestActivity?.confidence == .low)
+        return speedOK && (gForceVariance > highVarianceThreshold) && notAutomotive
     }
 
-    // MARK: - G-force variance
+    // MARK: - Computed signal properties
 
-    /// Sample variance of the g-force magnitude window. Returns 0 when fewer than 2 samples.
+    /// True when no valid GPS fix is available.
+    private var gpsBlackout: Bool {
+        latestGPS == nil || (latestGPS?.horizontalAccuracy ?? -1) < 0
+    }
+
+    /// Sample variance of the rolling g-force magnitude window. Returns 0 for fewer than 2 samples.
     var gForceVariance: Double {
         guard varianceWindow.count > 1 else { return 0.0 }
-        let count = Double(varianceWindow.count)
-        let mean = varianceWindow.reduce(0.0, +) / count
+        let n = Double(varianceWindow.count)
+        let mean = varianceWindow.reduce(0.0, +) / n
         let sumSq = varianceWindow.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) }
-        return sumSq / (count - 1)
+        return sumSq / (n - 1)
     }
 
     // MARK: - Test support helpers
     //
-    // These methods are internal (not private) so @testable imports can drive the classifier
+    // Internal (not private) so @testable imports can drive the classifier
     // without requiring a real PersistenceService (@ModelActor needs a ModelContainer).
 
-    /// Directly override classifier state — for test setup only.
-    func setState(_ newState: ClassifierState) {
-        state = newState
-    }
+    func setState(_ newState: ClassifierState) { state = newState }
+    func setGPS(_ reading: GPSReading?) { latestGPS = reading }
+    func setActivity(_ snapshot: ActivitySnapshot) { latestActivity = snapshot }
+    func setPersistence(_ service: any PersistenceServiceProtocol) { persistence = service }
+    func setCurrentRunID(_ id: UUID) { currentRunID = id }
 
-    /// Directly set the latest GPS reading — for test setup only.
-    func setGPS(_ reading: GPSReading?) {
-        latestGPS = reading
-    }
-
-    /// Directly set the latest activity snapshot — for test setup only.
-    func setActivity(_ snapshot: ActivitySnapshot) {
-        latestActivity = snapshot
-    }
-
-    /// Directly set a mock persistence service — for test setup only.
-    func setPersistence(_ service: any PersistenceServiceProtocol) {
-        persistence = service
-    }
-
-    /// Directly set the current run ID — for test setup only.
-    func setCurrentRunID(_ id: UUID) {
-        currentRunID = id
-    }
-
-    /// endDay variant that accepts a mock persistence service directly — for test setup only.
+    /// endDay variant that injects a mock persistence service — for tests only.
     func endDayWithPersistence(_ service: any PersistenceServiceProtocol) async {
         persistence = service
-        for task in consumptionTasks {
-            task.cancel()
-        }
+        consumptionTasks.forEach { $0.cancel() }
         consumptionTasks = []
-
         if state == .skiing, let runID = currentRunID {
             try? await persistence?.finalizeRunRecord(runID: runID, endTimestamp: clock())
         }
-
         resetAllState()
     }
 }
