@@ -12,14 +12,12 @@ import Foundation
 actor MockActivityManager: ActivityManagerProtocol {
     private var continuations: [UUID: AsyncStream<ActivitySnapshot>.Continuation] = [:]
 
-    nonisolated func makeStream() -> AsyncStream<ActivitySnapshot> {
+    func makeStream() -> AsyncStream<ActivitySnapshot> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ActivitySnapshot>.makeStream()
+        continuations[id] = continuation
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeContinuation(id: id) }
-        }
-        Task {
-            await self.registerContinuation(id: id, continuation: continuation)
         }
         return stream
     }

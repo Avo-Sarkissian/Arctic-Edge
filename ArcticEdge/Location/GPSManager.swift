@@ -30,7 +30,7 @@ nonisolated struct GPSReading: Sendable {
 /// nonisolated members prevent SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor from inferring
 /// @MainActor isolation on conforming types (same pattern as MotionDataSource).
 protocol GPSManagerProtocol: Actor {
-    nonisolated func makeStream() -> AsyncStream<GPSReading>
+    func makeStream() -> AsyncStream<GPSReading>
     func start() async
     func stop() async
 }
@@ -45,14 +45,12 @@ actor GPSManager: GPSManagerProtocol {
 
     // MARK: - GPSManagerProtocol
 
-    nonisolated func makeStream() -> AsyncStream<GPSReading> {
+    func makeStream() -> AsyncStream<GPSReading> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<GPSReading>.makeStream()
+        continuations[id] = continuation
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeContinuation(id: id) }
-        }
-        Task {
-            await self.registerContinuation(id: id, continuation: continuation)
         }
         return stream
     }

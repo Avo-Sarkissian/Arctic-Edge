@@ -63,7 +63,7 @@ nonisolated struct ActivitySnapshot: Sendable {
 /// nonisolated members prevent SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor from inferring
 /// @MainActor isolation on conforming types.
 protocol ActivityManagerProtocol: Actor {
-    nonisolated func makeStream() -> AsyncStream<ActivitySnapshot>
+    func makeStream() -> AsyncStream<ActivitySnapshot>
     func start() async
     func stop() async
 }
@@ -76,14 +76,12 @@ actor ActivityManager: ActivityManagerProtocol {
 
     // MARK: - ActivityManagerProtocol
 
-    nonisolated func makeStream() -> AsyncStream<ActivitySnapshot> {
+    func makeStream() -> AsyncStream<ActivitySnapshot> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ActivitySnapshot>.makeStream()
+        continuations[id] = continuation
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeContinuation(id: id) }
-        }
-        Task {
-            await self.registerContinuation(id: id, continuation: continuation)
         }
         return stream
     }

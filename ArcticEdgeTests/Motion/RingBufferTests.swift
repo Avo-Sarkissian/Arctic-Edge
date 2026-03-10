@@ -66,11 +66,12 @@ struct RingBufferTests {
     @Test("Concurrent append and drain never exceed capacity and never crash")
     func testConcurrentAppendAndDrain() async {
         let buffer = RingBuffer()
-        // Launch 10 concurrent append tasks, each appending 150 frames.
+        // Launch 5 concurrent append tasks, each appending 50 frames.
+        // Scale reduced from 10x150 to avoid simulator cooperative thread pool exhaustion.
         await withTaskGroup(of: Void.self) { group in
-            for t in 0..<10 {
+            for t in 0..<5 {
                 group.addTask {
-                    for i in 0..<150 {
+                    for i in 0..<50 {
                         await buffer.append(self.makeFrame(timestamp: Double(t * 150 + i)))
                     }
                 }

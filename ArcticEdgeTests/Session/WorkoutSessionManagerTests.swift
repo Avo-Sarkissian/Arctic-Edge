@@ -31,7 +31,7 @@ struct FailingWorkoutSession: WorkoutSessionProtocol {
     nonisolated func end() {}
 }
 
-@Suite("WorkoutSessionManager - sentinel lifecycle")
+@Suite("WorkoutSessionManager - sentinel lifecycle", .serialized)
 struct WorkoutSessionManagerTests {
 
     // Clean UserDefaults before each test by using a unique test key would be ideal,

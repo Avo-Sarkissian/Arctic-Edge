@@ -159,8 +159,8 @@ final class AppModel {
 
         // 3. Get streams for classifier.
         let frameStream = await broadcaster.makeStream()
-        let gpsStream = gpsManager.makeStream()
-        let activityStream = activityManager.makeStream()
+        let gpsStream = await gpsManager.makeStream()
+        let activityStream = await activityManager.makeStream()
 
         guard let service = persistenceService else {
             throw AppModelError.persistenceServiceNotReady

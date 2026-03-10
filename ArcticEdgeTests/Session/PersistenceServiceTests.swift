@@ -39,7 +39,7 @@ nonisolated func makeFilteredFrame(index: Int, runID: UUID) -> FilteredFrame {
     )
 }
 
-@Suite("PersistenceService")
+@Suite("PersistenceService", .serialized)
 struct PersistenceServiceTests {
 
     // SESS-02: 500 frames must produce exactly 500 FrameRecords via a single batched flush.

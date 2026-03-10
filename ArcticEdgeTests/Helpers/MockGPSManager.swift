@@ -10,14 +10,10 @@ import Foundation
 actor MockGPSManager: GPSManagerProtocol {
     private var continuations: [UUID: AsyncStream<GPSReading>.Continuation] = [:]
 
-    nonisolated func makeStream() -> AsyncStream<GPSReading> {
-        // makeStream() must be nonisolated to satisfy GPSManagerProtocol.
-        // We hop onto the actor to register the continuation.
-        let (stream, continuation) = AsyncStream<GPSReading>.makeStream()
+    func makeStream() -> AsyncStream<GPSReading> {
         let id = UUID()
-        Task {
-            await self.registerContinuation(id: id, continuation: continuation)
-        }
+        let (stream, continuation) = AsyncStream<GPSReading>.makeStream()
+        continuations[id] = continuation
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeContinuation(id: id) }
         }
