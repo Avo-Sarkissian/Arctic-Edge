@@ -36,14 +36,14 @@
 ### Post-Run Analysis
 
 - [ ] **ANLYS-01**: Post-Run Analysis view displays time-series charts (Swift Charts) for speed, g-force, and carve-pressure across the full run
-- [ ] **ANLYS-02**: Post-Run Analysis view shows per-run stats summary: top speed, average speed, vertical drop, run duration, distance
-- [ ] **ANLYS-03**: Post-Run Analysis view shows session-level aggregates: total vertical, total run count, total time skiing vs riding
+- [x] **ANLYS-02**: Post-Run Analysis view shows per-run stats summary: top speed, average speed, vertical drop, run duration, distance
+- [x] **ANLYS-03**: Post-Run Analysis view shows session-level aggregates: total vertical, total run count, total time skiing vs riding
 - [ ] **ANLYS-04**: Post-Run Analysis view provides segmented waveform replay — IMU data time-aligned with GPS speed profile, tappable to inspect any moment
 
 ### Run History
 
-- [ ] **HIST-01**: Run history browser lists all runs grouped by day, paginated via SwiftData FetchDescriptor (lazy loading for long season history)
-- [ ] **HIST-02**: Each run entry shows date, mountain/resort name (CoreLocation reverse geocode), top speed, and total vertical
+- [x] **HIST-01**: Run history browser lists all runs grouped by day, paginated via SwiftData FetchDescriptor (lazy loading for long season history)
+- [x] **HIST-02**: Each run entry shows date, mountain/resort name (CoreLocation reverse geocode), top speed, and total vertical
 
 ## v2 Requirements
 
@@ -92,11 +92,11 @@
 | LIVE-02 | Phase 3 | Pending |
 | LIVE-03 | Phase 3 | Pending |
 | ANLYS-01 | Phase 3 | Pending |
-| ANLYS-02 | Phase 3 | Pending |
-| ANLYS-03 | Phase 3 | Pending |
+| ANLYS-02 | Phase 3 | Complete |
+| ANLYS-03 | Phase 3 | Complete |
 | ANLYS-04 | Phase 3 | Pending |
-| HIST-01 | Phase 3 | Pending |
-| HIST-02 | Phase 3 | Pending |
+| HIST-01 | Phase 3 | Complete |
+| HIST-02 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 22 total
