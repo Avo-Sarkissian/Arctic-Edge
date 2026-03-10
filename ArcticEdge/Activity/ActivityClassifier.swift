@@ -66,6 +66,36 @@ actor ActivityClassifier {
     private(set) var latestGPS: GPSReading?
     private(set) var latestActivity: ActivitySnapshot?
 
+    // MARK: - HUD helper properties (actor-isolated, read via await from AppModel polling task)
+
+    /// Human-readable string label for the current ClassifierState.
+    var classifierStateLabel: String {
+        switch state {
+        case .skiing:    return "SKIING"
+        case .chairlift: return "CHAIRLIFT"
+        case .idle:      return "IDLE"
+        }
+    }
+
+    /// Human-readable activity label derived from the latest ActivitySnapshot.
+    var latestActivityLabel: String {
+        guard let a = latestActivity else { return "unknown" }
+        if a.automotive  { return "automotive" }
+        if a.running     { return "running" }
+        if a.walking     { return "walking" }
+        if a.cycling     { return "cycling" }
+        if a.stationary  { return "stationary" }
+        return "unknown"
+    }
+
+    /// Hysteresis progress toward the skiing onset confirmation window (0.0–1.0).
+    /// Returns 0 when not accumulating an onset window.
+    var hysteresisProgress: Double {
+        guard let onsetStart = pendingSkiingOnsetAt else { return 0.0 }
+        let elapsed = clock().timeIntervalSince(onsetStart)
+        return min(elapsed / skiingOnsetSeconds, 1.0)
+    }
+
     private var consumptionTasks: [Task<Void, Never>] = []
     private var persistence: (any PersistenceServiceProtocol)?
 

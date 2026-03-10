@@ -1,9 +1,10 @@
 // ArcticEdgeApp.swift
 // ArcticEdge
 //
-// App entry point. Wires the full Phase 1 pipeline:
+// App entry point. Wires the full pipeline:
 //   ModelContainer -> RingBuffer -> MotionManager -> StreamBroadcaster
-//   -> PersistenceService + WorkoutSessionManager
+//   -> PersistenceService + WorkoutSessionManager + GPSManager + ActivityManager
+//   -> ActivityClassifier (owns run segmentation boundaries)
 //
 // PersistenceService (@ModelActor) cannot be created synchronously in App.init()
 // because @ModelActor initialization binds to a background serial queue via the
@@ -16,7 +17,14 @@ import SwiftUI
 import SwiftData
 import HealthKit
 import CoreMotion
+import CoreLocation
 import UIKit
+
+// MARK: - AppModelError
+
+enum AppModelError: Error {
+    case persistenceServiceNotReady
+}
 
 // MARK: - AppModel
 
@@ -31,11 +39,22 @@ final class AppModel {
     let motionManager: MotionManager
     let broadcaster: StreamBroadcaster
     let workoutSessionManager: WorkoutSessionManager
+    let gpsManager: GPSManager
+    let activityManager: ActivityManager
+    let activityClassifier: ActivityClassifier
 
     // PersistenceService is initialized asynchronously via setupPipelineAsync().
     // It is stored as an optional because @ModelActor init is async.
     // After setupPipelineAsync() completes, this is always non-nil.
     private(set) var persistenceService: PersistenceService?
+
+    // HUD observable state — updated at 10Hz by hudPollingTask.
+    private(set) var classifierStateLabel: String = "IDLE"
+    private(set) var lastGPSSpeed: Double = -1
+    private(set) var lastGForceVariance: Double = 0
+    private(set) var lastActivityLabel: String = "unknown"
+    private(set) var hysteresisProgress: Double = 0
+    private(set) var isDayActive: Bool = false
 
     // Lifecycle observer tokens retained for deregistration.
     private var backgroundObserver: NSObjectProtocol?
@@ -43,6 +62,9 @@ final class AppModel {
 
     // Background flush task handle for cancellation on session end.
     private var periodicFlushTask: Task<Void, Never>?
+
+    // HUD polling task handle.
+    private var hudPollingTask: Task<Void, Never>?
 
     nonisolated init() {
         // ModelContainer: FrameRecord and RunRecord schema.
@@ -68,6 +90,9 @@ final class AppModel {
         Task { await mm.setStreamBroadcaster(bc) }
 
         self.workoutSessionManager = WorkoutSessionManager()
+        self.gpsManager = GPSManager()
+        self.activityManager = ActivityManager()
+        self.activityClassifier = ActivityClassifier()
     }
 
     // Called once from the WindowGroup .task modifier.
@@ -120,39 +145,91 @@ final class AppModel {
         }
     }
 
-    // SESS-01: Start a session. Enforces HKWorkoutSession .running BEFORE starting
-    // CMMotionManager. The run ID is shared between WorkoutSessionManager and broadcaster.
-    func startSession() async throws {
-        // 1. Bring HKWorkoutSession to .running first (SESS-01 ordering constraint).
+    // MARK: - Day lifecycle
+
+    // Start Day: arms GPS, ActivityManager, ActivityClassifier, IMU pipeline.
+    // SESS-01: HKWorkoutSession must reach .running before CMMotionManager starts.
+    func startDay() async throws {
+        // 1. HKWorkoutSession first (SESS-01 ordering constraint).
         try await workoutSessionManager.start()
 
-        let runID = UUID()
+        // 2. Start GPS and Activity signal sources.
+        await gpsManager.start()
+        await activityManager.start()
 
-        // 2. Create the RunRecord on disk before motion data starts arriving.
-        try await persistenceService?.createRunRecord(runID: runID, startTimestamp: Date())
+        // 3. Get streams for classifier.
+        let frameStream = await broadcaster.makeStream()
+        let gpsStream = gpsManager.makeStream()
+        let activityStream = activityManager.makeStream()
 
-        // 3. Start CMMotionManager. Frames start flowing into RingBuffer now.
-        await broadcaster.start(runID: runID)
+        guard let service = persistenceService else {
+            throw AppModelError.persistenceServiceNotReady
+        }
 
-        // 4. Start periodic flush: drain ring buffer to SwiftData every 2 seconds
-        //    when count >= 200 frames (SESS-02 batching policy).
-        startPeriodicFlush(runID: runID)
+        // 4. Arm ActivityClassifier — it owns all run boundaries from here.
+        await activityClassifier.startDay(
+            frameStream: frameStream,
+            gpsStream: gpsStream,
+            activityStream: activityStream,
+            persistenceService: service
+        )
+
+        // 5. Start IMU pipeline (day-level runID; per-run IDs owned by classifier).
+        let dayRunID = UUID()
+        await broadcaster.start(runID: dayRunID)
+        startPeriodicFlush(runID: dayRunID)
+        isDayActive = true
+
+        // 6. Start HUD polling loop.
+        startHUDPolling()
     }
 
-    // Stop the session: end HKWorkoutSession, stop motion, flush remaining frames.
-    func endSession(runID: UUID) async throws {
+    // End Day: finalizes any open RunRecord, stops all capture.
+    func endDay() async throws {
         periodicFlushTask?.cancel()
         periodicFlushTask = nil
+        hudPollingTask?.cancel()
+        hudPollingTask = nil
 
+        // Classifier finalizes any open RunRecord before stopping.
+        await activityClassifier.endDay()
         await broadcaster.stop()
+        await gpsManager.stop()
+        await activityManager.stop()
         await workoutSessionManager.end()
 
-        // Final flush of any remaining frames in the ring buffer.
         if let service = persistenceService {
             try await service.emergencyFlush(ringBuffer: ringBuffer)
-            try await service.finalizeRunRecord(runID: runID, endTimestamp: Date())
+        }
+
+        isDayActive = false
+        classifierStateLabel = "IDLE"
+    }
+
+    // MARK: - HUD polling
+
+    // Polls ActivityClassifier actor state at 10Hz and bridges it to @Observable
+    // main-actor properties for SwiftUI reactivity.
+    private func startHUDPolling() {
+        let classifier = activityClassifier
+        hudPollingTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let stateLabel = await classifier.classifierStateLabel
+                let gpsSpeed = await classifier.latestGPS?.speed ?? -1
+                let variance = await classifier.gForceVariance
+                let actLabel = await classifier.latestActivityLabel
+                let progress = await classifier.hysteresisProgress
+                self?.classifierStateLabel = stateLabel
+                self?.lastGPSSpeed = gpsSpeed
+                self?.lastGForceVariance = variance
+                self?.lastActivityLabel = actLabel
+                self?.hysteresisProgress = progress
+                try? await Task.sleep(for: .milliseconds(100))  // 10Hz HUD update
+            }
         }
     }
+
+    // MARK: - Periodic flush
 
     // SESS-02: Periodic background drain. Runs until cancelled.
     private func startPeriodicFlush(runID: UUID) {
