@@ -2,7 +2,7 @@
 // ArcticEdgeTests
 //
 // TDD GREEN phase for ActivityClassifier — all 10 stubs from plan 02-01 are now implemented.
-// Tests use MockPersistenceService (local actor) and a TestClock actor for deterministic
+// Tests use ClassifierMockPersistenceService (local actor) and a TestClock actor for deterministic
 // hysteresis control without Task.sleep.
 //
 // Requirements covered:
@@ -19,11 +19,14 @@ import CoreMotion
 import SwiftData
 @testable import ArcticEdge
 
-// MARK: - MockPersistenceService
+// MARK: - ClassifierMockPersistenceService
+//
+// Local mock for ActivityClassifier tests only.
+// The shared MockPersistenceService in ArcticEdgeTests/Helpers/ is used by ViewModel tests.
 
 /// Lightweight actor recording createRunRecord / finalizeRunRecord calls.
-/// Conforms to PersistenceServiceProtocol — does NOT require SwiftData.
-actor MockPersistenceService: PersistenceServiceProtocol {
+/// Conforms to PersistenceServiceProtocol — does NOT require SwiftData model operations.
+actor ClassifierMockPersistenceService: PersistenceServiceProtocol {
     struct CreateCall: Sendable {
         let runID: UUID
         let startTimestamp: Date
@@ -417,7 +420,7 @@ struct ActivityClassifierTests {
 
     /// Confirmed skiing transition must call createRunRecord exactly once.
     @Test func testConfirmedSkiingCreatesRunRecord() async {
-        let mock = MockPersistenceService()
+        let mock = ClassifierMockPersistenceService()
         let clock = TestClock(startingAt: Date(timeIntervalSince1970: 0))
         await clock.syncCache()
         let classifier = ActivityClassifier(
@@ -453,7 +456,7 @@ struct ActivityClassifierTests {
 
     /// SKIING → CHAIRLIFT transition must call finalizeRunRecord exactly once.
     @Test func testTransitionFinalizesRunRecord() async {
-        let mock = MockPersistenceService()
+        let mock = ClassifierMockPersistenceService()
         let clock = TestClock(startingAt: Date(timeIntervalSince1970: 0))
         await clock.syncCache()
         let classifier = ActivityClassifier(
@@ -489,7 +492,7 @@ struct ActivityClassifierTests {
 
     /// endDay() while in skiing state must finalize any open RunRecord.
     @Test func testEndDayFinalizesOpenRun() async {
-        let mock = MockPersistenceService()
+        let mock = ClassifierMockPersistenceService()
         let classifier = ActivityClassifier()
         await classifier.setState(.skiing)
         await classifier.setCurrentRunID(UUID())
