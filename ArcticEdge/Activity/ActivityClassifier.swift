@@ -16,6 +16,7 @@
 
 import CoreMotion
 import Foundation
+import SwiftData
 
 // MARK: - ClassifierState
 
@@ -31,7 +32,15 @@ nonisolated enum ClassifierState: Sendable, Equatable {
 /// PersistenceService conforms via extension; MockPersistenceService conforms in tests.
 protocol PersistenceServiceProtocol: Actor {
     func createRunRecord(runID: UUID, startTimestamp: Date) throws
-    func finalizeRunRecord(runID: UUID, endTimestamp: Date) throws
+    // Updated signature: accepts computed stats alongside endTimestamp.
+    // Callers that don't have stats available pass nil for all Optional parameters.
+    func finalizeRunRecord(runID: UUID, endTimestamp: Date,
+                           topSpeed: Double?, avgSpeed: Double?,
+                           verticalDrop: Double?, distanceMeters: Double?,
+                           resortName: String?) throws
+    // Phase 3 fetch methods for ViewModel queries.
+    func fetchRunRecords(descriptor: FetchDescriptor<RunRecord>) async throws -> [RunRecord]
+    func fetchFrameRecords(descriptor: FetchDescriptor<FrameRecord>) async throws -> [FrameRecord]
 }
 
 // MARK: - ActivityClassifier
@@ -143,7 +152,13 @@ actor ActivityClassifier {
         consumptionTasks.forEach { $0.cancel() }
         consumptionTasks = []
         if state == .skiing, let runID = currentRunID {
-            try? await persistence?.finalizeRunRecord(runID: runID, endTimestamp: clock())
+            // Stats computed by PostRunViewModel at query time; pass nil here.
+            try? await persistence?.finalizeRunRecord(
+                runID: runID, endTimestamp: clock(),
+                topSpeed: nil, avgSpeed: nil,
+                verticalDrop: nil, distanceMeters: nil,
+                resortName: nil
+            )
         }
         resetAllState()
     }
@@ -223,7 +238,13 @@ actor ActivityClassifier {
         if let runID = currentRunID {
             let service = persistence
             let endTime = clock()
-            Task { try? await service?.finalizeRunRecord(runID: runID, endTimestamp: endTime) }
+            // Stats computed by PostRunViewModel at query time; pass nil here.
+            Task { try? await service?.finalizeRunRecord(
+                runID: runID, endTimestamp: endTime,
+                topSpeed: nil, avgSpeed: nil,
+                verticalDrop: nil, distanceMeters: nil,
+                resortName: nil
+            ) }
         }
         currentRunID = nil
         state = .chairlift
@@ -288,7 +309,13 @@ actor ActivityClassifier {
         consumptionTasks.forEach { $0.cancel() }
         consumptionTasks = []
         if state == .skiing, let runID = currentRunID {
-            try? await persistence?.finalizeRunRecord(runID: runID, endTimestamp: clock())
+            // Stats computed by PostRunViewModel at query time; pass nil here.
+            try? await persistence?.finalizeRunRecord(
+                runID: runID, endTimestamp: clock(),
+                topSpeed: nil, avgSpeed: nil,
+                verticalDrop: nil, distanceMeters: nil,
+                resortName: nil
+            )
         }
         resetAllState()
     }

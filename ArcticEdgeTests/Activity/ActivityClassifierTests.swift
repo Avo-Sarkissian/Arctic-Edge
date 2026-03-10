@@ -16,6 +16,7 @@
 import Testing
 import Foundation
 import CoreMotion
+import SwiftData
 @testable import ArcticEdge
 
 // MARK: - MockPersistenceService
@@ -30,6 +31,11 @@ actor MockPersistenceService: PersistenceServiceProtocol {
     struct FinalizeCall: Sendable {
         let runID: UUID
         let endTimestamp: Date
+        let topSpeed: Double?
+        let avgSpeed: Double?
+        let verticalDrop: Double?
+        let distanceMeters: Double?
+        let resortName: String?
     }
 
     private(set) var createCalls: [CreateCall] = []
@@ -39,8 +45,24 @@ actor MockPersistenceService: PersistenceServiceProtocol {
         createCalls.append(CreateCall(runID: runID, startTimestamp: startTimestamp))
     }
 
-    func finalizeRunRecord(runID: UUID, endTimestamp: Date) throws {
-        finalizeCalls.append(FinalizeCall(runID: runID, endTimestamp: endTimestamp))
+    func finalizeRunRecord(runID: UUID, endTimestamp: Date,
+                           topSpeed: Double?, avgSpeed: Double?,
+                           verticalDrop: Double?, distanceMeters: Double?,
+                           resortName: String?) throws {
+        finalizeCalls.append(FinalizeCall(
+            runID: runID, endTimestamp: endTimestamp,
+            topSpeed: topSpeed, avgSpeed: avgSpeed,
+            verticalDrop: verticalDrop, distanceMeters: distanceMeters,
+            resortName: resortName
+        ))
+    }
+
+    func fetchRunRecords(descriptor: FetchDescriptor<RunRecord>) async throws -> [RunRecord] {
+        return []
+    }
+
+    func fetchFrameRecords(descriptor: FetchDescriptor<FrameRecord>) async throws -> [FrameRecord] {
+        return []
     }
 }
 
