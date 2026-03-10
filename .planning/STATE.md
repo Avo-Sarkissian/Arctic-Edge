@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-02-PLAN.md — schema migration + persistence layer extension with flushWithGPS and fetch protocol
-last_updated: "2026-03-10T20:19:35.799Z"
+stopped_at: Completed 03-01-PLAN.md — Wave 0 TDD stubs for LiveViewModel, PostRunViewModel, HistoryViewModel
+last_updated: "2026-03-10T20:27:27.715Z"
 last_activity: 2026-03-09 — Plan 01-01 completed (Motion Engine)
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 12
-  completed_plans: 7
+  completed_plans: 8
   percent: 50
 ---
 
@@ -56,6 +56,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02-activity-detection-run-management P03 | 30 | 2 tasks | 4 files |
 | Phase 02-activity-detection-run-management P03 | 65 | 4 tasks | 6 files |
 | Phase 03-live-telemetry-post-run-analysis P02 | 14 | 2 tasks | 7 files |
+| Phase 03-live-telemetry-post-run-analysis P01 | 21 | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase 03-live-telemetry-post-run-analysis]: nonisolated(unsafe) static var on VersionedSchema.versionIdentifier: Swift 6 strict concurrency rejects non-isolated global mutable state; nonisolated(unsafe) correct for write-once enum namespace values
 - [Phase 03-live-telemetry-post-run-analysis]: Optional RunRecord analytics fields excluded from init(): SwiftData lightweight migration sets new columns to nil at row expansion; init inclusion breaks migration contract
 - [Phase 03-live-telemetry-post-run-analysis]: flushWithGPS as canonical flush primitive: flush() and emergencyFlush() delegate to it so all frame inserts share one GPS-stamping code path
+- [Phase 03-live-telemetry-post-run-analysis]: Issue.record + #expect(Bool(false)) stub pattern for TDD Wave 0: compiles, fails red, explains why without instantiating non-existent types
+- [Phase 03-live-telemetry-post-run-analysis]: Shared MockPersistenceService in Helpers/ with injectable state; local ActivityClassifier mock renamed ClassifierMockPersistenceService to avoid Swift module name collision
 
 ### Pending Todos
 
@@ -104,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-10T20:19:35.796Z
-Stopped at: Completed 03-02-PLAN.md — schema migration + persistence layer extension with flushWithGPS and fetch protocol
+Last session: 2026-03-10T20:27:27.711Z
+Stopped at: Completed 03-01-PLAN.md — Wave 0 TDD stubs for LiveViewModel, PostRunViewModel, HistoryViewModel
 Resume file: None

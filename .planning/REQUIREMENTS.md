@@ -29,16 +29,16 @@
 
 ### Live Telemetry
 
-- [ ] **LIVE-01**: Live Telemetry view renders scrolling carve-pressure waveform at 120Hz using Canvas + TimelineView (ProMotion-native, no per-sample SwiftUI nodes)
-- [ ] **LIVE-02**: Live Telemetry view overlays frosted glass metric cards (ultraThinMaterial) showing real-time pitch, roll, g-force, and GPS speed
-- [ ] **LIVE-03**: Live Telemetry view remains fluid at 120fps without frame drops during active 100Hz data ingestion
+- [x] **LIVE-01**: Live Telemetry view renders scrolling carve-pressure waveform at 120Hz using Canvas + TimelineView (ProMotion-native, no per-sample SwiftUI nodes)
+- [x] **LIVE-02**: Live Telemetry view overlays frosted glass metric cards (ultraThinMaterial) showing real-time pitch, roll, g-force, and GPS speed
+- [x] **LIVE-03**: Live Telemetry view remains fluid at 120fps without frame drops during active 100Hz data ingestion
 
 ### Post-Run Analysis
 
-- [ ] **ANLYS-01**: Post-Run Analysis view displays time-series charts (Swift Charts) for speed, g-force, and carve-pressure across the full run
+- [x] **ANLYS-01**: Post-Run Analysis view displays time-series charts (Swift Charts) for speed, g-force, and carve-pressure across the full run
 - [x] **ANLYS-02**: Post-Run Analysis view shows per-run stats summary: top speed, average speed, vertical drop, run duration, distance
 - [x] **ANLYS-03**: Post-Run Analysis view shows session-level aggregates: total vertical, total run count, total time skiing vs riding
-- [ ] **ANLYS-04**: Post-Run Analysis view provides segmented waveform replay — IMU data time-aligned with GPS speed profile, tappable to inspect any moment
+- [x] **ANLYS-04**: Post-Run Analysis view provides segmented waveform replay — IMU data time-aligned with GPS speed profile, tappable to inspect any moment
 
 ### Run History
 
@@ -88,13 +88,13 @@
 | DETC-01 | Phase 2 | Complete |
 | DETC-02 | Phase 2 | Complete |
 | DETC-03 | Phase 2 | Complete |
-| LIVE-01 | Phase 3 | Pending |
-| LIVE-02 | Phase 3 | Pending |
-| LIVE-03 | Phase 3 | Pending |
-| ANLYS-01 | Phase 3 | Pending |
+| LIVE-01 | Phase 3 | Complete |
+| LIVE-02 | Phase 3 | Complete |
+| LIVE-03 | Phase 3 | Complete |
+| ANLYS-01 | Phase 3 | Complete |
 | ANLYS-02 | Phase 3 | Complete |
 | ANLYS-03 | Phase 3 | Complete |
-| ANLYS-04 | Phase 3 | Pending |
+| ANLYS-04 | Phase 3 | Complete |
 | HIST-01 | Phase 3 | Complete |
 | HIST-02 | Phase 3 | Complete |
 
