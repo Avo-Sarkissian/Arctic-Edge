@@ -89,6 +89,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Motion Engine & Session Foundation | 3/3 | Complete    | 2026-03-09 |
-| 2. Activity Detection & Run Management | 0/3 | Not started | - |
+| 2. Activity Detection & Run Management | 1/3 | In Progress|  |
 | 3. Live Telemetry & Post-Run Analysis | 0/2 | Not started | - |
 | 4. Hardening & Field Validation | 0/1 | Not started | - |

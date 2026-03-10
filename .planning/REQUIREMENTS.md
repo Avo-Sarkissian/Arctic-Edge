@@ -23,7 +23,7 @@
 
 ### Activity Detection
 
-- [ ] **DETC-01**: ActivityClassifier distinguishes active skiing from chairlift rides using fused GPS velocity, g-force variance, and motion activity signature
+- [x] **DETC-01**: ActivityClassifier distinguishes active skiing from chairlift rides using fused GPS velocity, g-force variance, and motion activity signature
 - [ ] **DETC-02**: Classifier applies hysteresis — requires N consecutive seconds of consistent state before triggering run start or end (prevents false transitions on slow skiing or brief stops)
 - [ ] **DETC-03**: Each detected skiing segment is automatically stored as a distinct RunRecord with start timestamp, end timestamp, and runID
 
@@ -85,7 +85,7 @@
 | SESS-03 | Phase 1 | Complete |
 | SESS-04 | Phase 1 | Complete |
 | SESS-05 | Phase 1 | Complete |
-| DETC-01 | Phase 2 | Pending |
+| DETC-01 | Phase 2 | Complete |
 | DETC-02 | Phase 2 | Pending |
 | DETC-03 | Phase 2 | Pending |
 | LIVE-01 | Phase 3 | Pending |
