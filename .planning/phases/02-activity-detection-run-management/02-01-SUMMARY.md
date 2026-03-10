@@ -132,6 +132,10 @@ None — no external service configuration required.
 - Both actors compile cleanly under SWIFT_STRICT_CONCURRENCY = complete
 - Concern: ActivityClassifier in 02-02 will consume ActivitySnapshot.automotive for chairlift detection — the CMMotionActivity.automotive flag is a logical heuristic (not Apple-documented for chairlifts); on-mountain calibration still required (tracked in STATE.md)
 
+## Self-Check: PASSED
+
+All 7 created files confirmed present on disk. All 3 task commits (560a069, a2fbb02, 52a558a) confirmed in git log. Build succeeded with zero errors. 6 GREEN tests + 10 RED stubs verified.
+
 ---
 *Phase: 02-activity-detection-run-management*
 *Completed: 2026-03-09*
