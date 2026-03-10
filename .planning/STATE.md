@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-activity-detection-run-management/02-01-PLAN.md
-last_updated: "2026-03-10T01:16:44.493Z"
+stopped_at: Completed 02-activity-detection-run-management/02-02-PLAN.md
+last_updated: "2026-03-10T01:30:33.886Z"
 last_activity: 2026-03-09 — Plan 01-01 completed (Motion Engine)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 50
 ---
 
@@ -52,6 +52,7 @@ Progress: [█████░░░░░] 50%
 *Updated after each plan completion*
 | Phase 01-motion-engine-and-session-foundation P02 | 54 | 3 tasks | 7 files |
 | Phase 02-activity-detection-run-management P01 | 10 | 3 tasks | 7 files |
+| Phase 02-activity-detection-run-management P02 | 11 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,8 @@ Recent decisions affecting current work:
 - [Phase 02-activity-detection-run-management]: ActivitySnapshot Sendable struct replaces AsyncStream<CMMotionActivity> — CMMotionActivity is not Sendable; primitive extraction mirrors MotionManager pattern
 - [Phase 02-activity-detection-run-management]: CLLocationUpdate.liveUpdates(.otherNavigation) prevents road-snapping on ski mountain terrain
 - [Phase 02-activity-detection-run-management]: CLBackgroundActivitySession stored as actor property — local var causes premature deallocation and silently kills GPS stream
+- [Phase 02-activity-detection-run-management]: PersistenceServiceProtocol existential (any PersistenceServiceProtocol) bridges @ModelActor PersistenceService with MockPersistenceService — avoids SwiftData ModelContainer in unit tests
+- [Phase 02-activity-detection-run-management]: TestClock actor with nonisolated(unsafe) var cache: Swift 6 rejects mutable var captured in @Sendable closure — actor owns the Date, unsafeCurrentDate provides synchronous read path for the clock closure
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-10T01:16:44.491Z
-Stopped at: Completed 02-activity-detection-run-management/02-01-PLAN.md
+Last session: 2026-03-10T01:30:33.884Z
+Stopped at: Completed 02-activity-detection-run-management/02-02-PLAN.md
 Resume file: None
