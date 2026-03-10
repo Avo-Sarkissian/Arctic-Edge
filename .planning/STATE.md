@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-activity-detection-run-management/02-02-PLAN.md
-last_updated: "2026-03-10T01:30:33.886Z"
+stopped_at: "Checkpoint: 02-03 awaiting human-verify — UI checkpoint before final commit"
+last_updated: "2026-03-10T01:49:22.754Z"
 last_activity: 2026-03-09 — Plan 01-01 completed (Motion Engine)
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
   percent: 50
 ---
 
@@ -53,6 +53,7 @@ Progress: [█████░░░░░] 50%
 | Phase 01-motion-engine-and-session-foundation P02 | 54 | 3 tasks | 7 files |
 | Phase 02-activity-detection-run-management P01 | 10 | 3 tasks | 7 files |
 | Phase 02-activity-detection-run-management P02 | 11 | 3 tasks | 2 files |
+| Phase 02-activity-detection-run-management P03 | 30 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,8 @@ Recent decisions affecting current work:
 - [Phase 02-activity-detection-run-management]: CLBackgroundActivitySession stored as actor property — local var causes premature deallocation and silently kills GPS stream
 - [Phase 02-activity-detection-run-management]: PersistenceServiceProtocol existential (any PersistenceServiceProtocol) bridges @ModelActor PersistenceService with MockPersistenceService — avoids SwiftData ModelContainer in unit tests
 - [Phase 02-activity-detection-run-management]: TestClock actor with nonisolated(unsafe) var cache: Swift 6 rejects mutable var captured in @Sendable closure — actor owns the Date, unsafeCurrentDate provides synchronous read path for the clock closure
+- [Phase 02-activity-detection-run-management]: HUD polling (Task + while loop at 100ms) bridges ActivityClassifier actor state to @Observable AppModel at 10Hz without Combine or protocol changes
+- [Phase 02-activity-detection-run-management]: classifierStateLabel, latestActivityLabel, hysteresisProgress added as actor-isolated computed properties on ActivityClassifier — string conversion stays with the type that owns the data
 
 ### Pending Todos
 
@@ -93,6 +96,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-10T01:30:33.884Z
-Stopped at: Completed 02-activity-detection-run-management/02-02-PLAN.md
+Last session: 2026-03-10T01:49:22.751Z
+Stopped at: Checkpoint: 02-03 awaiting human-verify — UI checkpoint before final commit
 Resume file: None

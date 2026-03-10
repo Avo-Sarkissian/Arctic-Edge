@@ -13,7 +13,7 @@ ArcticEdge ships in four phases driven by hard technical dependencies. Phase 1 b
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Motion Engine & Session Foundation** - Sensor pipeline, filtering, ring buffer, persistence, and background execution (completed 2026-03-09)
-- [ ] **Phase 2: Activity Detection & Run Management** - Skiing vs. chairlift classification, run segmentation, resilience
+- [x] **Phase 2: Activity Detection & Run Management** - Skiing vs. chairlift classification, run segmentation, resilience (completed 2026-03-10)
 - [ ] **Phase 3: Live Telemetry & Post-Run Analysis** - Live waveform dashboard, post-run charts, run history
 - [ ] **Phase 4: Hardening & Field Validation** - Power management, filter calibration, classifier tuning from real mountain data
 
@@ -89,6 +89,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Motion Engine & Session Foundation | 3/3 | Complete    | 2026-03-09 |
-| 2. Activity Detection & Run Management | 1/3 | In Progress|  |
+| 2. Activity Detection & Run Management | 3/3 | Complete   | 2026-03-10 |
 | 3. Live Telemetry & Post-Run Analysis | 0/2 | Not started | - |
 | 4. Hardening & Field Validation | 0/1 | Not started | - |
