@@ -82,6 +82,65 @@ actor PersistenceService {
         return try modelContext.fetch(descriptor)
     }
 
+    // Phase 3: Sendable-safe ViewModel helpers.
+    // @Model types (FrameRecord, RunRecord) are not Sendable across actor boundaries under
+    // Swift 6 strict concurrency. These methods extract only the needed primitive values
+    // within the @ModelActor context and return Sendable value types to @MainActor callers.
+
+    // Returns frame data for a given runID, sorted by timestamp.
+    func fetchFrameDataForRun(runID: UUID) throws -> [FrameSnapshot] {
+        modelContext.autosaveEnabled = false
+        let descriptor = FetchDescriptor<FrameRecord>(
+            predicate: #Predicate { $0.runID == runID },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        return try modelContext.fetch(descriptor).map { FrameSnapshot(from: $0) }
+    }
+
+    // Returns run metadata for a given runID.
+    func fetchRunSnapshot(runID: UUID) throws -> RunSnapshot? {
+        modelContext.autosaveEnabled = false
+        let descriptor = FetchDescriptor<RunRecord>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        return try modelContext.fetch(descriptor).first.map { RunSnapshot(from: $0) }
+    }
+
+    // Returns session aggregates: all completed (non-orphaned) runs.
+    func fetchCompletedRunSnapshots() throws -> [RunSnapshot] {
+        modelContext.autosaveEnabled = false
+        let descriptor = FetchDescriptor<RunRecord>(
+            predicate: #Predicate { $0.endTimestamp != nil && $0.isOrphaned == false },
+            sortBy: [SortDescriptor(\.startTimestamp)]
+        )
+        return try modelContext.fetch(descriptor).map { RunSnapshot(from: $0) }
+    }
+
+    // History pagination: returns completed, non-orphaned runs sorted by startTimestamp descending.
+    // Returns RunSnapshot (Sendable) array — safe to cross @ModelActor -> @MainActor boundary.
+    func fetchRunHistory(offset: Int, limit: Int) throws -> [RunSnapshot] {
+        modelContext.autosaveEnabled = false
+        var descriptor = FetchDescriptor<RunRecord>(
+            predicate: #Predicate { $0.endTimestamp != nil && $0.isOrphaned == false },
+            sortBy: [SortDescriptor(\.startTimestamp, order: .reverse)]
+        )
+        descriptor.fetchOffset = offset
+        descriptor.fetchLimit = limit
+        return try modelContext.fetch(descriptor).map { RunSnapshot(from: $0) }
+    }
+
+    // Geocode cache write: stores the resolved resort name on an existing RunRecord.
+    func updateResortName(runID: UUID, resortName: String) throws {
+        modelContext.autosaveEnabled = false
+        let descriptor = FetchDescriptor<RunRecord>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        if let record = try modelContext.fetch(descriptor).first {
+            record.resortName = resortName
+            try modelContext.save()
+        }
+    }
+
     // SESS-05 orphan recovery: mark any open RunRecord for this run as orphaned.
     func markOrphanedRunRecord(runID: UUID) throws {
         modelContext.autosaveEnabled = false

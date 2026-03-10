@@ -41,6 +41,9 @@ protocol PersistenceServiceProtocol: Actor {
     // Phase 3 fetch methods for ViewModel queries.
     func fetchRunRecords(descriptor: FetchDescriptor<RunRecord>) async throws -> [RunRecord]
     func fetchFrameRecords(descriptor: FetchDescriptor<FrameRecord>) async throws -> [FrameRecord]
+    // Phase 3 history pagination and geocode cache write for HistoryViewModel.
+    func fetchRunHistory(offset: Int, limit: Int) async throws -> [RunSnapshot]
+    func updateResortName(runID: UUID, resortName: String) async throws
 }
 
 // MARK: - ActivityClassifier
