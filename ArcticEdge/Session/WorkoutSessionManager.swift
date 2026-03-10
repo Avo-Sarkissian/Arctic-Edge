@@ -130,8 +130,15 @@ actor WorkoutSessionManager {
         UserDefaults.standard.set(true, forKey: kSessionSentinelKey)
 
         if sessionProtocol == nil {
-            // Production path: create a real HKWorkoutSession.
+            // Production path: request HealthKit authorization then create a real HKWorkoutSession.
             let store = HKHealthStore()
+
+            // Request authorization for workout sharing. Required before startActivity() or
+            // HealthKit will reject the session (crash / silent failure on iOS 17+).
+            let typesToShare: Set<HKSampleType> = [HKWorkoutType.workoutType()]
+            let typesToRead: Set<HKObjectType> = [HKWorkoutType.workoutType()]
+            try await store.requestAuthorization(toShare: typesToShare, read: typesToRead)
+
             let config = HKWorkoutConfiguration()
             config.activityType = .downhillSkiing
             config.locationType = .outdoor
