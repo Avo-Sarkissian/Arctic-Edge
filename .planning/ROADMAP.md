@@ -44,10 +44,12 @@ Plans:
   2. A new run record is created automatically at the start of each detected skiing segment, with no user action required
   3. Brief stops mid-run (slow traversal, flat section) do not prematurely end the current run segment
   4. GPS speed, g-force variance, and motion activity are all contributing to classification decisions (verifiable via debug overlay)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: ActivityClassifier actor (GPS velocity + g-force variance + hysteresis state machine), SessionManager, RunRecord finalization, GPS integration via CLLocationManager
+- [ ] 02-01-PLAN.md — GPSManager actor (CLLocationUpdate.liveUpdates), ActivityManager actor (CMMotionActivityManager bridge), injectable mock protocols, Wave 0 test stubs (11 ActivityClassifierTests, red)
+- [ ] 02-02-PLAN.md — ActivityClassifier actor: hysteresis state machine (TDD red→green), three-signal fusion, RunRecord lifecycle (DETC-01, DETC-02, DETC-03)
+- [ ] 02-03-PLAN.md — AppModel refactor (startDay/endDay), ContentView Arctic Dark session controls, ClassifierDebugHUD (#if DEBUG), human verify checkpoint
 
 ### Phase 3: Live Telemetry & Post-Run Analysis
 **Goal**: Skiers see real-time carving dynamics during a run and full graphed analysis after, with browsable history across the season
@@ -87,6 +89,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Motion Engine & Session Foundation | 3/3 | Complete    | 2026-03-09 |
-| 2. Activity Detection & Run Management | 0/1 | Not started | - |
+| 2. Activity Detection & Run Management | 0/3 | Not started | - |
 | 3. Live Telemetry & Post-Run Analysis | 0/2 | Not started | - |
 | 4. Hardening & Field Validation | 0/1 | Not started | - |
