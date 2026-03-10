@@ -48,7 +48,7 @@ Plans:
 
 Plans:
 - [ ] 02-01-PLAN.md — GPSManager actor (CLLocationUpdate.liveUpdates), ActivityManager actor (CMMotionActivityManager bridge), injectable mock protocols, Wave 0 test stubs (11 ActivityClassifierTests, red)
-- [ ] 02-02-PLAN.md — ActivityClassifier actor: hysteresis state machine (TDD red→green), three-signal fusion, RunRecord lifecycle (DETC-01, DETC-02, DETC-03)
+- [ ] 02-02-PLAN.md — ActivityClassifier actor: hysteresis state machine (TDD red->green), three-signal fusion, RunRecord lifecycle (DETC-01, DETC-02, DETC-03)
 - [ ] 02-03-PLAN.md — AppModel refactor (startDay/endDay), ContentView Arctic Dark session controls, ClassifierDebugHUD (#if DEBUG), human verify checkpoint
 
 ### Phase 3: Live Telemetry & Post-Run Analysis
@@ -61,11 +61,15 @@ Plans:
   3. Post-run analysis charts (speed, g-force, carve-pressure) are visible within 2 seconds of a run ending
   4. Per-run stats (top speed, average speed, vertical, duration, distance) and session aggregates (total vertical, run count, time skiing vs. riding) are accurate and match recorded data
   5. Run history lists all runs grouped by day, with resort name from reverse geocode, and loads without blocking the UI for a season of data
-**Plans**: TBD
+**Plans**: 6 plans
 
 Plans:
-- [ ] 03-01: LiveViewModel, LiveTelemetryView (Canvas + TimelineView waveform, frosted glass metric cards)
-- [ ] 03-02: PostRunViewModel, PostRunAnalysisView (Swift Charts time series, per-run stats, session aggregates, segmented waveform replay), run history browser
+- [ ] 03-01-PLAN.md — Wave 0 test stubs: LiveViewModelTests (3 stubs), PostRunViewModelTests (4 stubs), HistoryViewModelTests (2 stubs), extended MockPersistenceService
+- [ ] 03-02-PLAN.md — Schema migration (SchemaV2, ArcticEdgeMigrationPlan), RunRecord extension (topSpeed, avgSpeed, verticalDrop, distanceMeters, resortName), FrameRecord.gpsSpeed, PersistenceService fetch methods + flushWithGPS
+- [ ] 03-03-PLAN.md — LiveViewModel (@Observable @MainActor, 1000-sample waveform buffer), LiveTelemetryView (Canvas + TimelineView waveform, four frosted glass HUD metric cards)
+- [ ] 03-04-PLAN.md — PostRunViewModel (emergencyFlush-before-query, stats computation, session aggregates, scrubber), PostRunAnalysisView (three Swift Charts LineMark, chartXSelection, stats grid)
+- [ ] 03-05-PLAN.md — HistoryViewModel (FetchDescriptor pagination, DayGroup, CLGeocoder resort name cache), RunHistoryView (NavigationStack, grouped list, day headers, compact run rows)
+- [ ] 03-06-PLAN.md — AppModel wiring (lastFinalizedRunID, GPS-stamped flush), TodayTabView (fullScreenCover live view + post-run sheet), ArcticEdgeApp TabView root, human verify
 
 ### Phase 4: Hardening & Field Validation
 **Goal**: ArcticEdge survives a full ski day in cold weather, under thermal pressure, across all chairlift types, with calibrated filter and classifier
@@ -90,5 +94,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Motion Engine & Session Foundation | 3/3 | Complete    | 2026-03-09 |
 | 2. Activity Detection & Run Management | 3/3 | Complete   | 2026-03-10 |
-| 3. Live Telemetry & Post-Run Analysis | 0/2 | Not started | - |
+| 3. Live Telemetry & Post-Run Analysis | 0/6 | Not started | - |
 | 4. Hardening & Field Validation | 0/1 | Not started | - |
