@@ -28,6 +28,10 @@ final class FrameRecord {
     var rotationRateZ: Double
     var filteredAccelZ: Double
 
+    // Phase 3: GPS speed snapshot stamped at flush time by AppModel (plan 03-06).
+    // nil at record creation; set by PersistenceService.flushWithGPS(frames:gpsSpeed:).
+    var gpsSpeed: Double?
+
     init(from frame: FilteredFrame) {
         self.timestamp = frame.timestamp
         self.runID = frame.runID

@@ -17,6 +17,14 @@ final class RunRecord {
     var endTimestamp: Date?
     var isOrphaned: Bool
 
+    // Phase 3 analytics fields — all Optional for lightweight migration from V1.
+    // Do NOT include in init(); SwiftData initialises them to nil via lightweight migration.
+    var topSpeed: Double?
+    var avgSpeed: Double?
+    var verticalDrop: Double?
+    var distanceMeters: Double?
+    var resortName: String?
+
     init(runID: UUID, startTimestamp: Date) {
         self.runID = runID
         self.startTimestamp = startTimestamp

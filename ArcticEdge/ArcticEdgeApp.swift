@@ -71,7 +71,11 @@ final class AppModel {
         let schema = Schema([FrameRecord.self, RunRecord.self])
         let config = ModelConfiguration(schema: schema)
         // try! is acceptable here: a failed ModelContainer is an unrecoverable programmer error.
-        let c = try! ModelContainer(for: schema, configurations: config)
+        let c = try! ModelContainer(
+            for: schema,
+            migrationPlan: ArcticEdgeMigrationPlan.self,
+            configurations: config
+        )
         self.container = c
 
         let rb = RingBuffer()
