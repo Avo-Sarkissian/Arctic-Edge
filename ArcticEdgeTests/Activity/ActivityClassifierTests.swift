@@ -67,6 +67,12 @@ actor ClassifierMockPersistenceService: PersistenceServiceProtocol {
     func fetchFrameRecords(descriptor: FetchDescriptor<FrameRecord>) async throws -> [FrameRecord] {
         return []
     }
+
+    func fetchRunHistory(offset: Int, limit: Int) async throws -> [RunSnapshot] {
+        return []
+    }
+
+    func updateResortName(runID: UUID, resortName: String) async throws {}
 }
 
 // MARK: - TestClock
@@ -446,9 +452,10 @@ struct ActivityClassifierTests {
         await clock.syncCache()
         await classifier.processFrame(skiingFrame(timestamp: 3.02))
 
-        // Allow the Task in confirmSkiingTransition to complete.
-        await Task.yield()
-        await Task.yield()
+        // Allow the unstructured Task in confirmSkiingTransition to hop the mock actor boundary.
+        // Task.yield() x2 is insufficient when the scheduled Task crosses an actor boundary;
+        // a brief sleep gives the Swift concurrency scheduler time to complete the hop.
+        try? await Task.sleep(for: .milliseconds(50))
 
         let createCount = await mock.createCalls.count
         #expect(createCount == 1)
@@ -483,8 +490,8 @@ struct ActivityClassifierTests {
         await clock.syncCache()
         await classifier.processFrame(chairliftFrame(timestamp: 2.2))
 
-        await Task.yield()
-        await Task.yield()
+        // Same actor-boundary sleep as testConfirmedSkiingCreatesRunRecord.
+        try? await Task.sleep(for: .milliseconds(50))
 
         let finalizeCount = await mock.finalizeCalls.count
         #expect(finalizeCount == 1)

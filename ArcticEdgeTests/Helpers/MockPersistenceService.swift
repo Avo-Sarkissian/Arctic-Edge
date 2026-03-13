@@ -66,9 +66,30 @@ actor MockPersistenceService: PersistenceServiceProtocol {
         storedFrameRecords
     }
 
-    // MARK: - Phase 3 additional stub
+    // MARK: - Phase 3 additional stubs
+
     // emergencyFlush is referenced by plan 03-02 but not yet on the protocol.
     // Kept here for forward compatibility with plan 03-06.
     // Protocol requirement added in plan 03-06.
     func emergencyFlush(ringBuffer: RingBuffer) async throws {}
+
+    // Run history pagination — injectable state for HistoryViewModelTests.
+    // Stores injected RunSnapshot array; pagination offset/limit ignored in mock.
+    private(set) var storedRunSnapshots: [RunSnapshot] = []
+
+    func injectRunSnapshots(_ snapshots: [RunSnapshot]) {
+        storedRunSnapshots = snapshots
+    }
+
+    func fetchRunHistory(offset: Int, limit: Int) async throws -> [RunSnapshot] {
+        // Respect pagination in tests to allow testPaginationOffsetAdvances.
+        // Slice the storedRunSnapshots array by offset and limit.
+        let end = min(offset + limit, storedRunSnapshots.count)
+        guard offset < storedRunSnapshots.count else { return [] }
+        return Array(storedRunSnapshots[offset..<end])
+    }
+
+    func updateResortName(runID: UUID, resortName: String) async throws {
+        // No-op in mock — geocode cache write is fire-and-forget in tests.
+    }
 }
