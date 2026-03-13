@@ -56,6 +56,13 @@ final class AppModel {
     private(set) var hysteresisProgress: Double = 0
     private(set) var isDayActive: Bool = false
 
+    // Set by HUD polling when currentRunID transitions non-nil -> nil (run ended).
+    // Observed by TodayTabView to auto-present PostRunAnalysisView.
+    private(set) var lastFinalizedRunID: UUID? = nil
+
+    // Tracks the last seen currentRunID in the polling loop for finalization detection.
+    private var previousRunID: UUID? = nil
+
     // Lifecycle observer tokens retained for deregistration.
     private var backgroundObserver: NSObjectProtocol?
     private var terminateObserver: NSObjectProtocol?
@@ -208,12 +215,15 @@ final class AppModel {
 
         isDayActive = false
         classifierStateLabel = "IDLE"
+        lastFinalizedRunID = nil
+        previousRunID = nil
     }
 
     // MARK: - HUD polling
 
     // Polls ActivityClassifier actor state at 10Hz and bridges it to @Observable
     // main-actor properties for SwiftUI reactivity.
+    // Also detects non-nil -> nil transitions on currentRunID to capture lastFinalizedRunID.
     private func startHUDPolling() {
         let classifier = activityClassifier
         hudPollingTask = Task { @MainActor [weak self] in
@@ -223,11 +233,17 @@ final class AppModel {
                 let variance = await classifier.gForceVariance
                 let actLabel = await classifier.latestActivityLabel
                 let progress = await classifier.hysteresisProgress
+                let currentRunID = await classifier.currentRunID
                 self?.classifierStateLabel = stateLabel
                 self?.lastGPSSpeed = gpsSpeed
                 self?.lastGForceVariance = variance
                 self?.lastActivityLabel = actLabel
                 self?.hysteresisProgress = progress
+                // Detect non-nil -> nil transition: a run just ended.
+                if let prev = self?.previousRunID, currentRunID == nil {
+                    self?.lastFinalizedRunID = prev
+                }
+                self?.previousRunID = currentRunID
                 try? await Task.sleep(for: .milliseconds(100))  // 10Hz HUD update
             }
         }
@@ -236,14 +252,20 @@ final class AppModel {
     // MARK: - Periodic flush
 
     // SESS-02: Periodic background drain. Runs until cancelled.
+    // GPS speed is captured on @MainActor each iteration, then passed to the
+    // @ModelActor service via a detached task. lastGPSSpeed is < 0 when unavailable.
     private func startPeriodicFlush(runID: UUID) {
         guard let service = persistenceService else { return }
         let rb = ringBuffer
-        periodicFlushTask = Task.detached(priority: .background) {
+        periodicFlushTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
+                guard let self else { return }
                 if await rb.count >= 200 {
                     let frames = await rb.drain()
-                    try? await service.flush(frames: frames)
+                    let gpsSpeed = self.lastGPSSpeed >= 0 ? self.lastGPSSpeed : nil
+                    Task.detached {
+                        try? await service.flushWithGPS(frames: frames, gpsSpeed: gpsSpeed)
+                    }
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -259,12 +281,20 @@ struct ArcticEdgeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .modelContainer(appModel.container)
-                .environment(appModel)
-                .task {
-                    await appModel.setupPipelineAsync()
+            TabView {
+                Tab("Today", systemImage: "mountain.2.fill") {
+                    TodayTabView()
                 }
+                Tab("History", systemImage: "clock.fill") {
+                    RunHistoryView()
+                }
+            }
+            .tint(Color(red: 0.12, green: 0.56, blue: 1.0))
+            .modelContainer(appModel.container)
+            .environment(appModel)
+            .task {
+                await appModel.setupPipelineAsync()
+            }
         }
     }
 }
