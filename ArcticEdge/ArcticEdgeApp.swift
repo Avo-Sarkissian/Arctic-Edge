@@ -92,12 +92,22 @@ final class AppModel {
         // ModelContainer: FrameRecord and RunRecord schema.
         let schema = Schema([FrameRecord.self, RunRecord.self])
         let config = ModelConfiguration(schema: schema)
-        // try! is acceptable here: a failed ModelContainer is an unrecoverable programmer error.
-        let c = try! ModelContainer(
-            for: schema,
-            migrationPlan: ArcticEdgeMigrationPlan.self,
-            configurations: config
-        )
+
+        // Attempt migration-aware init first.
+        // If migration fails (e.g. stale simulator store from pre-migration build),
+        // delete the existing store file and create a fresh container.
+        // This loses stored run history but recovers a launchable state.
+        let c: ModelContainer
+        do {
+            c = try ModelContainer(
+                for: schema,
+                migrationPlan: ArcticEdgeMigrationPlan.self,
+                configurations: config
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: config.url)
+            c = try! ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema))
+        }
         self.container = c
 
         let rb = RingBuffer()
