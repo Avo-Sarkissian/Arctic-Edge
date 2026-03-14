@@ -369,6 +369,9 @@ private extension ProcessInfo.ThermalState {
 @main
 struct ArcticEdgeApp: App {
     @State private var appModel = AppModel()
+    // MetricKit subscriber retained for the process lifetime. Registers with
+    // MXMetricManager.shared in its init; receives daily payloads on-device.
+    private let metricKitSubscriber = MetricKitSubscriber()
 
     var body: some Scene {
         WindowGroup {
