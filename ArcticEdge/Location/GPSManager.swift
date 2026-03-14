@@ -42,6 +42,9 @@ actor GPSManager: GPSManagerProtocol {
     private var backgroundSession: CLBackgroundActivitySession?
     private var streamTask: Task<Void, Never>?
     private var continuations: [UUID: AsyncStream<GPSReading>.Continuation] = [:]
+    private var powerSaverEnabled: Bool = false
+    private var lastBroadcastDate: Date = .distantPast
+    private let powerSaverMinInterval: TimeInterval = 5.0
 
     // MARK: - GPSManagerProtocol
 
@@ -87,6 +90,11 @@ actor GPSManager: GPSManagerProtocol {
         continuations = [:]
     }
 
+    func setPowerSaverMode(_ enabled: Bool) {
+        powerSaverEnabled = enabled
+        if !enabled { lastBroadcastDate = .distantPast }
+    }
+
     // MARK: - Private
 
     private func registerContinuation(
@@ -97,6 +105,11 @@ actor GPSManager: GPSManagerProtocol {
     }
 
     private func broadcast(_ reading: GPSReading) {
+        if powerSaverEnabled {
+            let now = reading.timestamp
+            guard now.timeIntervalSince(lastBroadcastDate) >= powerSaverMinInterval else { return }
+            lastBroadcastDate = now
+        }
         for continuation in continuations.values {
             continuation.yield(reading)
         }

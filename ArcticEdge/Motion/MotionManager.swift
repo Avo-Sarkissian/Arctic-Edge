@@ -33,6 +33,8 @@ actor MotionManager {
     private let filter: BiquadHighPassFilter
     private var currentRunID: UUID = UUID()
     private var thermalObserver: NSObjectProtocol?
+    private var powerSaverEnabled: Bool = false
+    private(set) var currentSampleRateHz: Int = 100
 
     init(dataSource: any MotionDataSource, ringBuffer: RingBuffer, broadcaster: StreamBroadcaster? = nil) {
         self.dataSource = dataSource
@@ -46,8 +48,14 @@ actor MotionManager {
         self.broadcaster = broadcaster
     }
 
+    func setPowerSaverMode(_ enabled: Bool) {
+        powerSaverEnabled = enabled
+        adjustSampleRate(for: ProcessInfo.processInfo.thermalState)
+    }
+
     func startUpdates(runID: UUID) {
         currentRunID = runID
+        currentSampleRateHz = 100
         dataSource.deviceMotionUpdateInterval = 1.0 / 100.0  // 100Hz
         // Capture runID as a local constant before entering the callback closure.
         // Actor-isolated properties cannot be safely read from the CoreMotion callback thread.
@@ -147,18 +155,17 @@ actor MotionManager {
     }
 
     // adjustSampleRate is actor-isolated; safe to mutate dataSource here.
+    // Thermal state sets the upper bound; power saver caps at 60Hz if lower.
     func adjustSampleRate(for state: ProcessInfo.ThermalState) {
-        let interval: Double
+        let thermalHz: Int
         switch state {
-        case .nominal, .fair:
-            interval = 1.0 / 100.0   // 100Hz
-        case .serious:
-            interval = 1.0 / 50.0    // 50Hz
-        case .critical:
-            interval = 1.0 / 25.0    // 25Hz
-        @unknown default:
-            interval = 1.0 / 50.0
+        case .nominal, .fair:   thermalHz = 100
+        case .serious:          thermalHz = 50
+        case .critical:         thermalHz = 25
+        @unknown default:       thermalHz = 50
         }
-        dataSource.deviceMotionUpdateInterval = interval
+        let targetHz = powerSaverEnabled ? min(thermalHz, 60) : thermalHz
+        currentSampleRateHz = targetHz
+        dataSource.deviceMotionUpdateInterval = 1.0 / Double(targetHz)
     }
 }

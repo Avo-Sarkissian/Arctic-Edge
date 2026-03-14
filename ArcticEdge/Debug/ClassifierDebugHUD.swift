@@ -13,6 +13,14 @@ struct ClassifierDebugHUD: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
+            // Power saver indicator (only shown when active)
+            if appModel.powerSaverMode == .saving {
+                Text("PWR SAVE")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.0))
+                    .tracking(1)
+            }
+
             // State label — most prominent field
             HStack(spacing: 6) {
                 Circle()
@@ -26,11 +34,28 @@ struct ClassifierDebugHUD: View {
             Divider()
                 .overlay(Color.white.opacity(0.12))
 
-            // Diagnostic values — monospace for alignment stability
+            // Classifier diagnostic values
             Group {
                 hudRow(label: "GPS", value: String(format: "%.1f m/s", appModel.lastGPSSpeed))
                 hudRow(label: "VAR", value: String(format: "%.4f g\u{00B2}", appModel.lastGForceVariance))
                 hudRow(label: "ACT", value: appModel.lastActivityLabel)
+            }
+
+            Divider()
+                .overlay(Color.white.opacity(0.08))
+
+            // System telemetry rows
+            Group {
+                hudRow(label: "THML", value: appModel.thermalStateLabel)
+                hudRow(label: "BATT",
+                       value: appModel.batteryPercent >= 0
+                           ? "\(appModel.batteryPercent)%"
+                           : "--")
+                hudRow(label: "RATE", value: "\(appModel.currentSampleRateHz)Hz")
+                hudRow(label: "ACC",
+                       value: appModel.gpsHorizontalAccuracyMeters >= 0
+                           ? String(format: "\u{00B1}%.0fm", appModel.gpsHorizontalAccuracyMeters)
+                           : "--")
             }
 
             // Hysteresis progress bar
@@ -60,7 +85,7 @@ struct ClassifierDebugHUD: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
         )
-        .frame(width: 148)
+        .frame(width: 160)
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

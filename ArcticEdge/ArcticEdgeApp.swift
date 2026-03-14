@@ -20,6 +20,13 @@ import CoreMotion
 import CoreLocation
 import UIKit
 
+// MARK: - PowerSaverMode
+
+nonisolated enum PowerSaverMode: Equatable, Sendable {
+    case normal   // 100Hz IMU, continuous GPS
+    case saving   // 60Hz IMU, duty-cycled GPS (≤1 update/5s)
+}
+
 // MARK: - AppModelError
 
 enum AppModelError: Error {
@@ -63,9 +70,17 @@ final class AppModel {
     // Tracks the last seen currentRunID in the polling loop for finalization detection.
     private var previousRunID: UUID? = nil
 
+    // Power Saver — battery-level-driven mode switching.
+    private(set) var powerSaverMode: PowerSaverMode = .normal
+    private(set) var thermalStateLabel: String = "NOMINAL"
+    private(set) var batteryPercent: Int = -1            // -1 = unmonitored (simulator)
+    private(set) var currentSampleRateHz: Int = 100
+    private(set) var gpsHorizontalAccuracyMeters: Double = -1
+
     // Lifecycle observer tokens retained for deregistration.
     private var backgroundObserver: NSObjectProtocol?
     private var terminateObserver: NSObjectProtocol?
+    private var batteryObserver: NSObjectProtocol?
 
     // Background flush task handle for cancellation on session end.
     private var periodicFlushTask: Task<Void, Never>?
@@ -126,6 +141,7 @@ final class AppModel {
         }
 
         setupLifecycleObservers()
+        setupBatteryMonitoring()
     }
 
     // SESS-04: Register for app lifecycle notifications so the ring buffer is flushed
@@ -153,6 +169,51 @@ final class AppModel {
             Task.detached {
                 try? await service.emergencyFlush(ringBuffer: rb)
             }
+        }
+    }
+
+    // MARK: - Power Saver
+
+    // Enables UIDevice battery monitoring and registers for level-change notifications.
+    // Battery level is -1 in simulator — guard on level >= 0 before acting.
+    private func setupBatteryMonitoring() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let level = UIDevice.current.batteryLevel
+        if level >= 0 { batteryPercent = Int(level * 100) }
+        batteryObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.batteryLevelDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let level = UIDevice.current.batteryLevel
+                guard level >= 0 else { return }
+                let pct = Int(level * 100)
+                self.batteryPercent = pct
+                await self.updatePowerSaverMode(batteryPercent: pct)
+            }
+        }
+    }
+
+    @MainActor
+    func updatePowerSaverMode(batteryPercent: Int) async {
+        let newMode = AppModel.nextPowerSaverMode(current: powerSaverMode, batteryPercent: batteryPercent)
+        guard newMode != powerSaverMode else { return }
+        powerSaverMode = newMode
+        let saving = (newMode == .saving)
+        await motionManager.setPowerSaverMode(saving)
+        await gpsManager.setPowerSaverMode(saving)
+    }
+
+    /// Pure threshold logic — extracted for testability.
+    /// Activates at ≤30%, deactivates at ≥35% (5% hysteresis prevents flapping).
+    nonisolated static func nextPowerSaverMode(
+        current: PowerSaverMode, batteryPercent: Int
+    ) -> PowerSaverMode {
+        switch current {
+        case .normal: return batteryPercent <= 30 ? .saving : .normal
+        case .saving: return batteryPercent >= 35 ? .normal : .saving
         }
     }
 
@@ -217,6 +278,15 @@ final class AppModel {
         classifierStateLabel = "IDLE"
         lastFinalizedRunID = nil
         previousRunID = nil
+
+        // Tear down battery monitoring for this session.
+        if let obs = batteryObserver {
+            NotificationCenter.default.removeObserver(obs)
+            batteryObserver = nil
+        }
+        UIDevice.current.isBatteryMonitoringEnabled = false
+        batteryPercent = -1
+        powerSaverMode = .normal
     }
 
     // MARK: - HUD polling
@@ -226,19 +296,26 @@ final class AppModel {
     // Also detects non-nil -> nil transitions on currentRunID to capture lastFinalizedRunID.
     private func startHUDPolling() {
         let classifier = activityClassifier
+        let mm = motionManager
         hudPollingTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 let stateLabel = await classifier.classifierStateLabel
                 let gpsSpeed = await classifier.latestGPS?.speed ?? -1
+                let gpsAccuracy = await classifier.latestGPS?.horizontalAccuracy ?? -1
                 let variance = await classifier.gForceVariance
                 let actLabel = await classifier.latestActivityLabel
                 let progress = await classifier.hysteresisProgress
                 let currentRunID = await classifier.currentRunID
+                let sampleRateHz = await mm.currentSampleRateHz
+                let thermal = ProcessInfo.processInfo.thermalState
                 self?.classifierStateLabel = stateLabel
                 self?.lastGPSSpeed = gpsSpeed
+                self?.gpsHorizontalAccuracyMeters = gpsAccuracy
                 self?.lastGForceVariance = variance
                 self?.lastActivityLabel = actLabel
                 self?.hysteresisProgress = progress
+                self?.currentSampleRateHz = sampleRateHz
+                self?.thermalStateLabel = thermal.debugLabel
                 // Detect non-nil -> nil transition: a run just ended.
                 if let prev = self?.previousRunID, currentRunID == nil {
                     self?.lastFinalizedRunID = prev
@@ -269,6 +346,20 @@ final class AppModel {
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+}
+
+// MARK: - ProcessInfo.ThermalState display
+
+private extension ProcessInfo.ThermalState {
+    var debugLabel: String {
+        switch self {
+        case .nominal:   return "NOMINAL"
+        case .fair:      return "FAIR"
+        case .serious:   return "SERIOUS"
+        case .critical:  return "CRITICAL"
+        @unknown default: return "UNKNOWN"
         }
     }
 }
