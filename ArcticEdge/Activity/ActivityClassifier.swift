@@ -326,4 +326,6 @@ actor ActivityClassifier {
 
 // MARK: - PersistenceService conformance
 
+// PersistenceService satisfies PersistenceServiceProtocol via this retroactive conformance.
+// The @ModelActor throws methods satisfy async throws protocol requirements in Swift.
 extension PersistenceService: PersistenceServiceProtocol {}

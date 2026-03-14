@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Motion Engine & Session Foundation** - Sensor pipeline, filtering, ring buffer, persistence, and background execution (completed 2026-03-09)
 - [x] **Phase 2: Activity Detection & Run Management** - Skiing vs. chairlift classification, run segmentation, resilience (completed 2026-03-10)
 - [ ] **Phase 3: Live Telemetry & Post-Run Analysis** - Live waveform dashboard, post-run charts, run history
-- [ ] **Phase 4: Hardening & Field Validation** - Power management, filter calibration, classifier tuning from real mountain data
+- [x] **Phase 4: Hardening & Field Validation** - Power management, filter calibration, classifier tuning from real mountain data (completed 2026-03-14)
 
 ## Phase Details
 
@@ -83,7 +83,8 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 04-01: Power Saver mode (60Hz UI, GPS duty-cycling), debug overlay, MetricKit battery profiling, filter and classifier calibration from beta data
+- [x] 04-01-PLAN.md — PowerSaverMode (30%/35% hysteresis), MotionManager 60Hz cap, GPSManager duty-cycle, ClassifierDebugHUD THML/BATT/RATE/ACC rows
+- [x] 04-02-PLAN.md — MetricKitSubscriber (JSONL daily payload log), CalibrationExporter actor (run JSON export for field labeling)
 
 ## Progress
 
@@ -95,4 +96,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Motion Engine & Session Foundation | 3/3 | Complete    | 2026-03-09 |
 | 2. Activity Detection & Run Management | 3/3 | Complete   | 2026-03-10 |
 | 3. Live Telemetry & Post-Run Analysis | 6/6 | Complete    | 2026-03-13 |
-| 4. Hardening & Field Validation | 0/1 | Not started | - |
+| 4. Hardening & Field Validation | 2/2 | Complete     | 2026-03-14 |
