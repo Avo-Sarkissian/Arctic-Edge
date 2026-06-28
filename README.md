@@ -19,6 +19,7 @@ Swift 6 (strict concurrency complete), SwiftUI, SwiftData, CoreMotion, CoreLocat
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): current system map, data pipeline, source layout, known issues.
 - [docs/CARVING-SCORE.md](docs/CARVING-SCORE.md): the carving score design spec and implementation plan.
 - [docs/RESEARCH.md](docs/RESEARCH.md): the research synthesis and source list behind the score.
+- [docs/UI-HANDOFF.md](docs/UI-HANDOFF.md): brief for the carving score UI pass (data, surfaces, theme, honesty rules).
 - [CLAUDE.md](CLAUDE.md): working guidelines for this repo.
 - `.planning/`: historical build record (phases 1 to 4), reference only.
 

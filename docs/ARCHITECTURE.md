@@ -48,12 +48,17 @@ The Xcode project uses synchronized folder groups: any `.swift` file under `Arct
 - Good test coverage on motion, classification, persistence, and view models.
 - Consistent Arctic Dark styling.
 
-## Known issues (detail and fixes in CARVING-SCORE.md section 5)
+## Known issues (detail in CARVING-SCORE.md section 5)
 
-1. **Per run frame tagging is broken**: `FrameRecord.runID` is a day level UUID while `RunRecord.runID` is per run, so `fetchFrameDataForRun(runID:)` returns zero frames. This breaks post run charts today and blocks any per run score.
-2. **`filteredAccelZ` is the wrong axis** (raw device frame, not gravity vertical) and its filter cutoff drifts when the sample rate throttles (the biquad is built once at 100 Hz and never rebuilt).
-3. **CalibrationExporter omits gyro and gravity and is never called**: it cannot provide calibration data for the metrics that need those fields.
-4. **No shared theme tokens**: accent colors and the slate gradient are re declared across about six view files. Extract a theme module during the UI pass.
+Fixed in the carving score work:
+
+1. **Per run frame tagging (FIXED, verify on device).** `MotionManager.ingest` now stamps the active run id, pushed from the classifier via the AppModel HUD poll. `FrameRecord.runID` matches `RunRecord.runID`. Known limitation: ~3 s onset window not tagged.
+2. **CalibrationExporter gyro/gravity (FIXED).** `FrameSnapshot`, `CalibrationFrame`, and the persistence projection now carry gravity and rotationRate. Exporter still has no UI trigger.
+
+Still open:
+
+3. **`filteredAccelZ` is the wrong axis** (raw device frame, not gravity vertical) and its filter cutoff drifts when the sample rate throttles (the biquad is built once at 100 Hz and never rebuilt). The carving score sidesteps this (it recomputes vertical from raw `userAccel` on gravity), but the live waveform still uses `filteredAccelZ`. Fix separately.
+4. **No shared theme tokens**: accent colors and the slate gradient are re declared across about six view files. Extract a theme module during the UI pass (see UI-HANDOFF.md).
 5. **Diagnostics has no test coverage** (CalibrationExporter, MetricKitSubscriber).
 6. **`ContentView` stats row is a dead placeholder** (RUNS / DISTANCE / ELAPSED render as dashes): a ready slot for a day level carving score.
 7. **verticalDrop uses phone pitch as a slope proxy** (flagged as a calibration concern), so vertical and distance are rough estimates.
