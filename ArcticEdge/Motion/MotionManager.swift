@@ -57,9 +57,6 @@ actor MotionManager {
         currentRunID = runID
         currentSampleRateHz = 100
         dataSource.deviceMotionUpdateInterval = 1.0 / 100.0  // 100Hz
-        // Capture runID as a local constant before entering the callback closure.
-        // Actor-isolated properties cannot be safely read from the CoreMotion callback thread.
-        let capturedRunID = runID
         observeThermalState()
         dataSource.startDeviceMotionUpdates(
             to: OperationQueue(),
@@ -81,10 +78,10 @@ actor MotionManager {
                 let rotationRateY = motion.rotationRate.y
                 let rotationRateZ = motion.rotationRate.z
                 // Bridge into actor context to apply the filter and store the frame.
+                // ingest() stamps the currently active runID inside the actor.
                 Task {
-                    await self.receive(
+                    await self.ingest(
                         timestamp: timestamp,
-                        runID: capturedRunID,
                         pitch: pitch,
                         roll: roll,
                         yaw: yaw,
@@ -109,6 +106,35 @@ actor MotionManager {
             NotificationCenter.default.removeObserver(observer)
             thermalObserver = nil
         }
+    }
+
+    // Update the run the captured frames are tagged with. Called by the app
+    // when the classifier starts a run (the run's UUID), and when it ends (a
+    // fresh throwaway UUID so post-run lift frames do not pollute the run).
+    // This is the fix for the per-run frame tagging bug: FrameRecord.runID
+    // must match RunRecord.runID for per-run queries and the carving score.
+    func setActiveRunID(_ id: UUID) {
+        currentRunID = id
+    }
+
+    // Production ingest path: stamps the currently active runID (no caller
+    // supplied id). The CoreMotion callback uses this so frames always carry
+    // the live active run. Tests can still call receive() with an explicit id.
+    func ingest(
+        timestamp: TimeInterval,
+        pitch: Double, roll: Double, yaw: Double,
+        userAccelX: Double, userAccelY: Double, userAccelZ: Double,
+        gravityX: Double, gravityY: Double, gravityZ: Double,
+        rotationRateX: Double, rotationRateY: Double, rotationRateZ: Double
+    ) async {
+        await receive(
+            timestamp: timestamp,
+            runID: currentRunID,
+            pitch: pitch, roll: roll, yaw: yaw,
+            userAccelX: userAccelX, userAccelY: userAccelY, userAccelZ: userAccelZ,
+            gravityX: gravityX, gravityY: gravityY, gravityZ: gravityZ,
+            rotationRateX: rotationRateX, rotationRateY: rotationRateY, rotationRateZ: rotationRateZ
+        )
     }
 
     // receive() is actor-isolated. Safe to access filter (actor-owned, non-Sendable).

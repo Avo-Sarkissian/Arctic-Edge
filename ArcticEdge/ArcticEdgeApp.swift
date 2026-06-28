@@ -316,8 +316,20 @@ final class AppModel {
                 self?.hysteresisProgress = progress
                 self?.currentSampleRateHz = sampleRateHz
                 self?.thermalStateLabel = thermal.debugLabel
+                // Bug 1 fix: keep captured frames tagged with the active run so
+                // FrameRecord.runID matches RunRecord.runID. On run start, tag with
+                // the run's id; on run end, switch to a throwaway id so subsequent
+                // lift frames do not pollute the just-ended run's frame set.
+                let previous = self?.previousRunID ?? nil
+                if currentRunID != previous {
+                    if let id = currentRunID {
+                        await mm.setActiveRunID(id)
+                    } else {
+                        await mm.setActiveRunID(UUID())
+                    }
+                }
                 // Detect non-nil -> nil transition: a run just ended.
-                if let prev = self?.previousRunID, currentRunID == nil {
+                if let prev = previous, currentRunID == nil {
                     self?.lastFinalizedRunID = prev
                 }
                 self?.previousRunID = currentRunID

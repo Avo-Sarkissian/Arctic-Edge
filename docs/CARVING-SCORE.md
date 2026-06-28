@@ -106,15 +106,13 @@ Pillars A and B work with zero GPS. That is what makes the score usable on a rea
 
 ---
 
-## 5. Blocking bugs to fix first (found during analysis)
+## 5. Blocking bugs found during analysis (status)
 
-These must be fixed before any score is trustworthy. Without bug 1, the engine literally has no data.
+1. **Per run frame tagging (FIXED, pending on-device verification).** Frames were stamped with a single day level UUID while `ActivityClassifier` minted a separate per run UUID for each `RunRecord`, so `fetchFrameDataForRun(runID:)` returned zero frames (this also broke post run charts). Fix: `MotionManager.ingest` now stamps the currently active run id, updated live via `MotionManager.setActiveRunID`. The AppModel HUD polling loop pushes the classifier's `currentRunID` into the motion pipeline on each run start (the run's id) and end (a throwaway id so lift frames do not pollute the run). Unit tested in `MotionManagerTests.testIngestUsesActiveRunID`. Known limitation: the ~3 s skiing onset window plus ~100 ms poll latency means the first few seconds of a run are not tagged with the run id, so a run's frame set starts shortly after true onset. A precise fix would have the classifier drive `setActiveRunID` directly from `confirmSkiingTransition`. Verify on device.
 
-1. **Per run frame tagging is broken.** Frames are stamped with a single day level UUID (set in `MotionManager.startUpdates` via `broadcaster.start(runID:)`), while `ActivityClassifier` mints a separate per run UUID for each `RunRecord`. So `FrameRecord.runID` is the day ID for the whole day, but `RunRecord.runID` is the per run ID, and `PersistenceService.fetchFrameDataForRun(runID:)` returns zero frames. This already breaks post run charts and would give the score no input. Fix: propagate the classifier's current run ID (or nil between runs) into the motion pipeline so `FrameRecord.runID` matches `RunRecord.runID`.
+2. **`filteredAccelZ` is the wrong axis and the filter cutoff drifts (worked around in scoring; source bug remains).** `filteredAccelZ` is the high pass of raw device frame `userAccelZ`, not a gravity vertical, and the biquad is built once at 100 Hz and never rebuilt when the rate throttles. The carving score does NOT consume `filteredAccelZ`; it recomputes vertical from raw `userAccel` projected on gravity. The underlying `MotionManager` filter bug (used by the live waveform) is still open and should be fixed separately.
 
-2. **`filteredAccelZ` is the wrong axis and the filter cutoff drifts.** It is the high pass of raw device frame `userAccelZ` (whatever way the phone faces in the pocket), not a gravity vertical. And `BiquadHighPassFilter` is built once at 100 Hz and never rebuilt when the rate throttles, so the effective cutoff moves. Do not use stored `filteredAccelZ` for scoring; recompute vertical from raw `userAccel` projected on gravity, with a rate aware zero lag filter.
-
-3. **CalibrationExporter drops gyro and gravity, and is never called.** `FrameSnapshot` and the exporter carry only 9 fields and omit `gravityX/Y/Z` and `rotationRateX/Y/Z`, the exact signals the robust metrics need. Extend `FrameSnapshot`, the exporter payload, and the persistence projection to include them; wire a trigger so calibration data can actually be exported and the score anchors recalibrated.
+3. **CalibrationExporter gyro/gravity (FIXED).** `FrameSnapshot`, the exporter payload (`CalibrationFrame`), and the persistence projection now carry `gravityX/Y/Z` and `rotationRateX/Y/Z`, the signals the robust metrics need. The exporter still has no UI trigger; add one (a debug control or post-run hook) before a field calibration pass.
 
 ---
 
