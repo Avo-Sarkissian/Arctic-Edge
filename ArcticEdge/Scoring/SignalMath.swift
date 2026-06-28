@@ -151,14 +151,26 @@ nonisolated enum SignalMath {
     /// Less negative means smoother. Rotation invariant when applied to a
     /// speed or angular speed profile.
     static func sparc(_ movement: [Double], sampleRate: Double, fc: Double = 10.0, amplitudeThreshold: Double = 0.05) -> Double {
-        let n = movement.count
-        guard n >= 4, sampleRate > 0 else { return 0 }
+        guard movement.count >= 4, sampleRate > 0 else { return 0 }
+        // Cap the DFT input for long runs: the naive spectrum is O(bins * n),
+        // so decimate to a bounded length (effective rate scaled to match).
+        // Movement/angular speed is low frequency dominated, so plain striding
+        // is adequate here.
+        var signal = movement
+        var fs = sampleRate
+        let maxSamples = 1024
+        if signal.count > maxSamples {
+            let step = Int(ceil(Double(signal.count) / Double(maxSamples)))
+            signal = Swift.stride(from: 0, to: movement.count, by: step).map { movement[$0] }
+            fs = sampleRate / Double(step)
+        }
+        let n = signal.count
         let basePower = Int(ceil(log2(Double(n))))
         let nfft = Int(pow(2.0, Double(basePower + 2))) // pad for resolution
-        let mags = magnitudeSpectrum(movement, nfft: nfft)
+        let mags = magnitudeSpectrum(signal, nfft: nfft)
         guard let maxMag = mags.max(), maxMag > 0 else { return 0 }
         let normalized = mags.map { $0 / maxMag }
-        let df = sampleRate / Double(nfft)
+        let df = fs / Double(nfft)
         let fcIndex = min(Int(fc / df), normalized.count - 1)
         guard fcIndex >= 1 else { return 0 }
         let band = Array(normalized[0...fcIndex])

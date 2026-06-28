@@ -18,6 +18,8 @@ struct RunSnapshot: Sendable {
     let verticalDrop: Double?
     let distanceMeters: Double?
     let resortName: String?
+    let carvingScore: Double?
+    let carvingScoreVersion: String?
 
     nonisolated init(from record: RunRecord) {
         self.runID = record.runID
@@ -29,5 +31,7 @@ struct RunSnapshot: Sendable {
         self.verticalDrop = record.verticalDrop
         self.distanceMeters = record.distanceMeters
         self.resortName = record.resortName
+        self.carvingScore = record.carvingScore
+        self.carvingScoreVersion = record.carvingScoreVersion
     }
 }

@@ -17,6 +17,15 @@ struct FrameSnapshot: Sendable {
     let userAccelX: Double
     let userAccelY: Double
     let userAccelZ: Double
+    // Gravity and rotationRate (gyro) are required by the carving score
+    // engine to project signals into a gravity aligned frame. They were
+    // previously dropped from this snapshot.
+    let gravityX: Double
+    let gravityY: Double
+    let gravityZ: Double
+    let rotationRateX: Double
+    let rotationRateY: Double
+    let rotationRateZ: Double
     let filteredAccelZ: Double
     let gpsSpeed: Double?
 
@@ -29,6 +38,12 @@ struct FrameSnapshot: Sendable {
         self.userAccelX = record.userAccelX
         self.userAccelY = record.userAccelY
         self.userAccelZ = record.userAccelZ
+        self.gravityX = record.gravityX
+        self.gravityY = record.gravityY
+        self.gravityZ = record.gravityZ
+        self.rotationRateX = record.rotationRateX
+        self.rotationRateY = record.rotationRateY
+        self.rotationRateZ = record.rotationRateZ
         self.filteredAccelZ = record.filteredAccelZ
         self.gpsSpeed = record.gpsSpeed
     }

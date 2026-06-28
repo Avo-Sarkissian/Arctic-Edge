@@ -141,6 +141,20 @@ actor PersistenceService {
         }
     }
 
+    // Write the computed carving score (and its model version) onto an
+    // existing RunRecord. Computed post-run by PostRunViewModel.
+    func updateCarvingScore(runID: UUID, score: Double, version: String) throws {
+        modelContext.autosaveEnabled = false
+        let descriptor = FetchDescriptor<RunRecord>(
+            predicate: #Predicate { $0.runID == runID }
+        )
+        if let record = try modelContext.fetch(descriptor).first {
+            record.carvingScore = score
+            record.carvingScoreVersion = version
+            try modelContext.save()
+        }
+    }
+
     // SESS-05 orphan recovery: mark any open RunRecord for this run as orphaned.
     func markOrphanedRunRecord(runID: UUID) throws {
         modelContext.autosaveEnabled = false

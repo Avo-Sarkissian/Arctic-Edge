@@ -71,6 +71,15 @@ private nonisolated struct CalibrationFrame: Encodable, Sendable {
     let userAccelX: Double
     let userAccelY: Double
     let userAccelZ: Double
+    // Gravity and gyro are required to recalibrate the carving score
+    // anchors from labeled real runs (the engine projects on gravity and
+    // uses yaw rate about vertical).
+    let gravityX: Double
+    let gravityY: Double
+    let gravityZ: Double
+    let rotationRateX: Double
+    let rotationRateY: Double
+    let rotationRateZ: Double
     let filteredAccelZ: Double
     let gpsSpeed: Double?
 
@@ -82,6 +91,12 @@ private nonisolated struct CalibrationFrame: Encodable, Sendable {
         self.userAccelX = snapshot.userAccelX
         self.userAccelY = snapshot.userAccelY
         self.userAccelZ = snapshot.userAccelZ
+        self.gravityX = snapshot.gravityX
+        self.gravityY = snapshot.gravityY
+        self.gravityZ = snapshot.gravityZ
+        self.rotationRateX = snapshot.rotationRateX
+        self.rotationRateY = snapshot.rotationRateY
+        self.rotationRateZ = snapshot.rotationRateZ
         self.filteredAccelZ = snapshot.filteredAccelZ
         self.gpsSpeed = snapshot.gpsSpeed
     }

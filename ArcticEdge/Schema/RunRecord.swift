@@ -25,6 +25,13 @@ final class RunRecord {
     var distanceMeters: Double?
     var resortName: String?
 
+    // Carving score (CRVG-01). Optional for lightweight migration; do NOT add
+    // to init(). Computed post-run by PostRunViewModel and written via
+    // PersistenceService.updateCarvingScore. carvingScoreVersion records the
+    // frozen model version so runs stay comparable across recalibration.
+    var carvingScore: Double?
+    var carvingScoreVersion: String?
+
     init(runID: UUID, startTimestamp: Date) {
         self.runID = runID
         self.startTimestamp = startTimestamp

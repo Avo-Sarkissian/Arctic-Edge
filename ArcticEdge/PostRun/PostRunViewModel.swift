@@ -14,6 +14,7 @@
 
 import Foundation
 import SwiftData
+import simd
 
 // MARK: - Value types (Sendable for actor-boundary crossings)
 
@@ -39,6 +40,7 @@ final class PostRunViewModel {
 
     private(set) var snapshots: [FrameSnapshot] = []
     private(set) var stats: RunStats = RunStats()
+    private(set) var carvingScore: CarvingScore? = nil
     private(set) var sessionAggregates: SessionAggregates = SessionAggregates()
     private(set) var isLoading: Bool = false
     private(set) var selectedTimestamp: TimeInterval? = nil
@@ -97,9 +99,35 @@ final class PostRunViewModel {
             stats.duration = end.timeIntervalSince(runSnap.startTimestamp)
         }
 
+        // Compute the carving score from the per-run frames and persist it.
+        // The engine (DFTs etc.) runs off the main actor.
+        let score = await computeCarvingScore(from: fetchedSnapshots)
+        carvingScore = score
+        if let overall = score.overall {
+            try? await persistenceService.updateCarvingScore(runID: runID, score: overall, version: score.modelVersion)
+        }
+
         // Compute session aggregates (all completed runs)
         let completedRuns = (try? await persistenceService.fetchCompletedRunSnapshots()) ?? []
         updateSessionAggregates(from: completedRuns)
+    }
+
+    // MARK: - Carving score
+
+    // Build ScoringFrames from the persisted snapshots and run the engine
+    // off the main actor (it does FFT/DSP work). Returns the full score so
+    // the UI can show the headline number and the pillar/sub metric drill down.
+    private func computeCarvingScore(from snapshots: [FrameSnapshot]) async -> CarvingScore {
+        let frames = snapshots.map { snapshot in
+            ScoringFrame(
+                timestamp: snapshot.timestamp,
+                userAccel: SIMD3(snapshot.userAccelX, snapshot.userAccelY, snapshot.userAccelZ),
+                gravity: SIMD3(snapshot.gravityX, snapshot.gravityY, snapshot.gravityZ),
+                rotationRate: SIMD3(snapshot.rotationRateX, snapshot.rotationRateY, snapshot.rotationRateZ),
+                gpsSpeed: snapshot.gpsSpeed
+            )
+        }
+        return await Task.detached { CarvingScorer.score(frames: frames) }.value
     }
 
     // Test-injectable variant: accepts pre-built FrameData directly.
