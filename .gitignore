@@ -1,0 +1,25 @@
+# Xcode user state and build artifacts
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+**/xcshareddata/WorkspaceSettings.xcsettings
+
+# Build output
+DerivedData/
+build/
+*.o
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Field data exported on device (not source)
+Calibration/
+MetricKit/
