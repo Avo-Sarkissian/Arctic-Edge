@@ -1,8 +1,10 @@
 # ArcticEdge: Claude Code Guidelines
 
-ArcticEdge is an iPhone ski carving telemetry app: it captures a 100 Hz IMU stream, auto segments skiing from chairlift rides, and gives live and post run analysis. The current focus is the **carving score**: a single 0 to 100 quality score per run.
+ArcticEdge is an iPhone ski carving telemetry app: it captures a 100 Hz IMU stream, auto segments skiing from chairlift rides, and gives live and post run analysis. The headline feature is the **carving score**: a single 0 to 100 quality score per run.
 
-Start here: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system map, [docs/CARVING-SCORE.md](docs/CARVING-SCORE.md) for the active design, [docs/RESEARCH.md](docs/RESEARCH.md) for the evidence base. The `.planning/` directory is the historical build record (phases 1 to 4) and is reference only.
+Status: the carving score engine is built, tested, and wired end to end (run frames -> `CarvingScorer` -> persisted on `RunRecord`). It compiles clean and is labeled provisional pending calibration from real runs. The two remaining pieces are the **score UI** (the Claude design pass) and **anchor recalibration** from field data via the `CalibrationExporter`.
+
+Start here: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system map, [docs/CARVING-SCORE.md](docs/CARVING-SCORE.md) for the score design of record, [docs/RESEARCH.md](docs/RESEARCH.md) for the evidence base, and [docs/UI-HANDOFF.md](docs/UI-HANDOFF.md) for the UI brief. The `.planning/` directory is the historical build record (phases 1 to 4) and is reference only.
 
 ## Product intent (the durable goals)
 

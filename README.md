@@ -8,7 +8,7 @@ A high performance ski carving telemetry app for iPhone 16 Pro. ArcticEdge captu
 - **Live telemetry:** a scrolling carve pressure waveform and frosted glass metric cards during the run.
 - **Post run analysis:** speed, g force, and carve pressure charts with a scrubber, plus per run and per day stats.
 - **Run history:** browsable by day, with resort names from reverse geocoding.
-- **Carving score (in progress):** a single 0 to 100 quality score per run. See [docs/CARVING-SCORE.md](docs/CARVING-SCORE.md).
+- **Carving score:** a single 0 to 100 quality score per run. The engine is built, tested, and wired through to persistence; the score UI (a Claude design pass) and recalibration from real runs are the remaining work. See [docs/CARVING-SCORE.md](docs/CARVING-SCORE.md) and [docs/UI-HANDOFF.md](docs/UI-HANDOFF.md).
 
 ## Tech
 
@@ -32,4 +32,11 @@ Command line compile check:
 ```
 xcodebuild build -scheme ArcticEdge -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+```
+
+Full test suite (needs a booted simulator; pick one your toolchain has installed):
+
+```
+xcodebuild test -scheme ArcticEdge -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO
 ```

@@ -2,7 +2,7 @@
 
 **Captured:** 2026-06-28, from a full codebase analysis.
 
-ArcticEdge is an iPhone ski telemetry app (iOS 18+, iPhone 16 Pro target). It captures a 100 Hz IMU stream, auto segments skiing from chairlift rides, and presents live and post run analysis. All four original build phases are complete. The code is disciplined Swift 6 strict concurrency throughout (actors plus AsyncStream, no Combine), with roughly 62 Swift Testing cases.
+ArcticEdge is an iPhone ski telemetry app (iOS 18+, iPhone 16 Pro target). It captures a 100 Hz IMU stream, auto segments skiing from chairlift rides, and presents live and post run analysis. All four original build phases are complete, and the carving score engine (`Scoring/`) is built, tested, and wired through to persistence. The code is disciplined Swift 6 strict concurrency throughout (actors plus AsyncStream, no Combine), with roughly 80 Swift Testing cases (about 25 covering the scoring engine).
 
 ## Data pipeline
 
