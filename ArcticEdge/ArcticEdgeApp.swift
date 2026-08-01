@@ -29,8 +29,42 @@ nonisolated enum PowerSaverMode: Equatable, Sendable {
 
 // MARK: - AppModelError
 
-enum AppModelError: Error {
+enum AppModelError: Error, LocalizedError {
     case persistenceServiceNotReady
+
+    var errorDescription: String? {
+        switch self {
+        case .persistenceServiceNotReady:
+            return "Storage is still starting up. Try again in a moment."
+        }
+    }
+}
+
+// MARK: - Background task assertion
+
+// Wraps async work in a UIKit background task assertion so iOS does not suspend
+// the process partway through a SwiftData write. Emergency flushes used to run
+// in a bare detached Task, so a background transition could cut a save in half
+// and lose the tail of a run.
+@MainActor
+func withBackgroundAssertion(
+    name: String,
+    _ work: @Sendable @escaping () async -> Void
+) async {
+    var taskID: UIBackgroundTaskIdentifier = .invalid
+    taskID = UIApplication.shared.beginBackgroundTask(withName: name) {
+        // Expiration handler: iOS is reclaiming the assertion. Release it so
+        // the app is not killed for holding an expired task.
+        if taskID != .invalid {
+            UIApplication.shared.endBackgroundTask(taskID)
+            taskID = .invalid
+        }
+    }
+    await work()
+    if taskID != .invalid {
+        UIApplication.shared.endBackgroundTask(taskID)
+        taskID = .invalid
+    }
 }
 
 // MARK: - AppModel
@@ -49,6 +83,7 @@ final class AppModel {
     let gpsManager: GPSManager
     let activityManager: ActivityManager
     let activityClassifier: ActivityClassifier
+    let locationAuthorization: LocationAuthorization
 
     // PersistenceService is initialized asynchronously via setupPipelineAsync().
     // It is stored as an optional because @ModelActor init is async.
@@ -62,6 +97,15 @@ final class AppModel {
     private(set) var lastActivityLabel: String = "unknown"
     private(set) var hysteresisProgress: Double = 0
     private(set) var isDayActive: Bool = false
+
+    // Capture health. `captureWarnings` lists everything currently degrading the
+    // session (location denied, workout session unavailable, GPS lost) so the UI
+    // can be honest instead of silently recording nothing. `lastCaptureError`
+    // holds the most recent persistence failure, which used to be swallowed by
+    // `try?` at every call site.
+    private(set) var captureWarnings: [String] = []
+    private(set) var lastCaptureError: String? = nil
+    private(set) var gpsHealth: GPSHealth = .idle
 
     // Set by HUD polling when currentRunID transitions non-nil -> nil (run ended).
     // Observed by TodayTabView to auto-present PostRunAnalysisView.
@@ -119,6 +163,10 @@ final class AppModel {
         self.gpsManager = GPSManager()
         self.activityManager = ActivityManager()
         self.activityClassifier = ActivityClassifier()
+        // LocationAuthorization owns a CLLocationManager, which must be created
+        // on the main thread. AppModel is @MainActor apart from this init, and
+        // the App struct constructs it during main-actor scene setup.
+        self.locationAuthorization = MainActor.assumeIsolated { LocationAuthorization() }
     }
 
     // Called once from the WindowGroup .task modifier.
@@ -154,10 +202,13 @@ final class AppModel {
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            // Detach to avoid blocking the notification callback thread.
-            Task.detached {
-                try? await service.emergencyFlush(ringBuffer: rb)
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await withBackgroundAssertion(name: "ArcticEdge.backgroundFlush") {
+                    do { try await service.emergencyFlush(ringBuffer: rb) }
+                    catch { await self.recordCaptureError(error, context: "background flush") }
+                }
             }
         }
 
@@ -165,21 +216,66 @@ final class AppModel {
             forName: UIApplication.willTerminateNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            Task.detached {
-                try? await service.emergencyFlush(ringBuffer: rb)
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await withBackgroundAssertion(name: "ArcticEdge.terminateFlush") {
+                    do { try await service.emergencyFlush(ringBuffer: rb) }
+                    catch { await self.recordCaptureError(error, context: "shutdown flush") }
+                }
             }
         }
     }
+
+    // MARK: - Capture health
+
+    /// Records a persistence failure so it reaches the UI. Save errors used to be
+    /// discarded by `try?`, which meant a full disk or a cold-weather shutdown lost
+    /// data with no signal to the skier at all.
+    func recordCaptureError(_ error: Error, context: String) {
+        lastCaptureError = "\(context): \(error.localizedDescription)"
+    }
+
+    private func refreshCaptureWarnings() {
+        var warnings: [String] = []
+        if let reason = locationAuthorization.state.degradedReason, isDayActive || locationAuthorization.state.isBlocked {
+            warnings.append(reason)
+        }
+        if let gpsMessage = gpsHealth.message, gpsHealth != .awaitingFix,
+           locationAuthorization.state.degradedReason == nil {
+            warnings.append(gpsMessage)
+        }
+        if isDayActive && !isWorkoutSessionActive {
+            warnings.append("Background workout session unavailable: capture may stop when the screen locks.")
+        }
+        captureWarnings = warnings
+    }
+
+    // Tracks whether the HKWorkoutSession actually started. Capture continues
+    // without it, but background survival is not guaranteed, so the UI says so.
+    private(set) var isWorkoutSessionActive: Bool = false
 
     // MARK: - Power Saver
 
     // Enables UIDevice battery monitoring and registers for level-change notifications.
     // Battery level is -1 in simulator — guard on level >= 0 before acting.
     private func setupBatteryMonitoring() {
+        // Idempotent: startDay() re-arms after endDay() removed the observer.
+        if let existing = batteryObserver {
+            NotificationCenter.default.removeObserver(existing)
+            batteryObserver = nil
+        }
         UIDevice.current.isBatteryMonitoringEnabled = true
         let level = UIDevice.current.batteryLevel
-        if level >= 0 { batteryPercent = Int(level * 100) }
+        if level >= 0 {
+            batteryPercent = Int(level * 100)
+            // Honor the current level immediately rather than waiting for the
+            // first level-change notification, which may be an hour away.
+            let pct = Int(level * 100)
+            Task { @MainActor [weak self] in
+                await self?.updatePowerSaverMode(batteryPercent: pct)
+            }
+        }
         batteryObserver = NotificationCenter.default.addObserver(
             forName: UIDevice.batteryLevelDidChangeNotification,
             object: nil,
@@ -222,11 +318,31 @@ final class AppModel {
     // Start Day: arms GPS, ActivityManager, ActivityClassifier, IMU pipeline.
     // SESS-01: HKWorkoutSession must reach .running before CMMotionManager starts.
     func startDay() async throws {
+        lastCaptureError = nil
+
+        // 0. Location authorization. CLBackgroundActivitySession only grants
+        //    background execution once when-in-use authorization is held, so the
+        //    prompt has to resolve before GPS starts. A refusal degrades the
+        //    session (no speed, distance, or intensity pillar) but never blocks
+        //    IMU capture, which is the part that carries the carving score.
+        await locationAuthorization.requestIfNeeded()
+
         // 1. HKWorkoutSession first (SESS-01 ordering constraint).
-        try await workoutSessionManager.start()
+        //    Denial or unavailability must NOT abort the day: the session buys
+        //    background CPU budget, it is not the source of any data. Capture
+        //    proceeds degraded and the UI warns that a screen lock may stop it.
+        do {
+            try await workoutSessionManager.start()
+            isWorkoutSessionActive = true
+        } catch {
+            isWorkoutSessionActive = false
+            recordCaptureError(error, context: "workout session")
+        }
 
         // 2. Start GPS and Activity signal sources.
-        await gpsManager.start()
+        if !locationAuthorization.state.isBlocked {
+            await gpsManager.start()
+        }
         await activityManager.start()
 
         // 3. Get streams for classifier.
@@ -252,8 +368,14 @@ final class AppModel {
         startPeriodicFlush(runID: dayRunID)
         isDayActive = true
 
-        // 6. Start HUD polling loop.
+        // 6. Re-arm battery monitoring. endDay() tears it down, and this used to
+        //    be a launch-only call, so Power Saver was dead from the second
+        //    session of the process onward: exactly when a long day needs it.
+        setupBatteryMonitoring()
+
+        // 7. Start HUD polling loop.
         startHUDPolling()
+        refreshCaptureWarnings()
     }
 
     // End Day: finalizes any open RunRecord, stops all capture.
@@ -271,13 +393,20 @@ final class AppModel {
         await workoutSessionManager.end()
 
         if let service = persistenceService {
-            try await service.emergencyFlush(ringBuffer: ringBuffer)
+            let rb = ringBuffer
+            await withBackgroundAssertion(name: "ArcticEdge.endDayFlush") {
+                do { try await service.emergencyFlush(ringBuffer: rb) }
+                catch { await self.recordCaptureError(error, context: "end of day flush") }
+            }
         }
 
         isDayActive = false
+        isWorkoutSessionActive = false
+        gpsHealth = .idle
         classifierStateLabel = "IDLE"
         lastFinalizedRunID = nil
         previousRunID = nil
+        refreshCaptureWarnings()
 
         // Tear down battery monitoring for this session.
         if let obs = batteryObserver {
@@ -297,7 +426,9 @@ final class AppModel {
     private func startHUDPolling() {
         let classifier = activityClassifier
         let mm = motionManager
+        let gps = gpsManager
         hudPollingTask = Task { @MainActor [weak self] in
+            var warningTick = 0
             while !Task.isCancelled {
                 let stateLabel = await classifier.classifierStateLabel
                 let gpsSpeed = await classifier.latestGPS?.speed ?? -1
@@ -333,6 +464,14 @@ final class AppModel {
                     self?.lastFinalizedRunID = prev
                 }
                 self?.previousRunID = currentRunID
+                // GPS health changes slowly; sample it once a second rather than
+                // hitting the actor ten times for a value that rarely moves.
+                warningTick += 1
+                if warningTick % 10 == 0 {
+                    let health = await gps.health
+                    self?.gpsHealth = health
+                    self?.refreshCaptureWarnings()
+                }
                 try? await Task.sleep(for: .milliseconds(100))  // 10Hz HUD update
             }
         }
@@ -352,9 +491,10 @@ final class AppModel {
                 if await rb.count >= 200 {
                     let frames = await rb.drain()
                     let gpsSpeed = self.lastGPSSpeed >= 0 ? self.lastGPSSpeed : nil
-                    Task.detached {
-                        try? await service.flushWithGPS(frames: frames, gpsSpeed: gpsSpeed)
-                    }
+                    // Errors are reported rather than dropped: a failed save is
+                    // permanent data loss and the skier deserves to know.
+                    do { try await service.flushWithGPS(frames: frames, gpsSpeed: gpsSpeed) }
+                    catch { self.recordCaptureError(error, context: "periodic flush") }
                 }
                 try? await Task.sleep(for: .seconds(2))
             }

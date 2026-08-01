@@ -53,6 +53,22 @@ struct ContentView: View {
                 // Primary CTA button
                 actionButton
 
+                // Capture health: authorization refusals, GPS loss, and missing
+                // background session are stated plainly rather than left silent.
+                if !appModel.captureWarnings.isEmpty {
+                    VStack(spacing: 6) {
+                        ForEach(appModel.captureWarnings, id: \.self) { warning in
+                            noticeRow(warning, tint: Color(red: 1.0, green: 0.75, blue: 0.0))
+                        }
+                    }
+                    .padding(.top, 16)
+                }
+
+                if let captureError = appModel.lastCaptureError {
+                    noticeRow(captureError, tint: Color(red: 1.0, green: 0.28, blue: 0.28))
+                        .padding(.top, 10)
+                }
+
                 // Error label
                 if let error = errorMessage {
                     Text(error)
@@ -267,6 +283,29 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Notices
+
+    private func noticeRow(_ text: String, tint: Color) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(tint)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.white.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(tint.opacity(0.30), lineWidth: 0.5)
+        )
     }
 
     // MARK: - Helpers
