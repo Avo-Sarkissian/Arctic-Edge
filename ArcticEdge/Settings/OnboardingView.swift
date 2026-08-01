@@ -31,6 +31,7 @@ struct OnboardingView: View {
                         .font(Theme.Typography.display)
                         .foregroundStyle(Theme.Palette.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("onboarding.heading")
                 }
 
                 VStack(alignment: .leading, spacing: Theme.Spacing.m) {
@@ -77,10 +78,12 @@ struct OnboardingView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isRequesting)
+                .accessibilityIdentifier("onboarding.continue")
 
                 Button("Not now") {
                     settings.hasCompletedOnboarding = true
                 }
+                .accessibilityIdentifier("onboarding.skip")
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.Palette.textTertiary)
                 .frame(maxWidth: .infinity)

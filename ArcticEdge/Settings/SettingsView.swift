@@ -122,6 +122,7 @@ struct SettingsView: View {
                     .monospacedDigit()
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
+            .accessibilityIdentifier("settings.frameCount")
 
             Button {
                 Task { await exportCalibrationData() }
@@ -134,6 +135,7 @@ struct SettingsView: View {
             }
             .disabled(isExporting)
             .foregroundStyle(Theme.Palette.arctic)
+            .accessibilityIdentifier("settings.exportCalibration")
 
             if let exportResult {
                 switch exportResult {
@@ -152,6 +154,7 @@ struct SettingsView: View {
                 showDeleteConfirmation = true
             }
             .disabled(appModel.isDayActive)
+            .accessibilityIdentifier("settings.deleteAll")
         } header: {
             Text("DATA").arcticLabel()
         } footer: {
@@ -168,7 +171,9 @@ struct SettingsView: View {
             Button("Delete everything", role: .destructive) {
                 Task { await deleteAllData() }
             }
+            .accessibilityIdentifier("settings.confirmDelete")
             Button("Keep my data", role: .cancel) {}
+                .accessibilityIdentifier("settings.cancelDelete")
         } message: {
             Text("This removes every recorded run, score, and motion frame. It cannot be undone.")
         }
@@ -184,6 +189,7 @@ struct SettingsView: View {
                 Text(CarvingScoreModel.v1.version)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Palette.textSecondary)
+                    .accessibilityIdentifier("settings.modelVersion")
             }
         } header: {
             Text("ABOUT").arcticLabel()

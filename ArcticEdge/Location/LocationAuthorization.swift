@@ -80,21 +80,36 @@ final class LocationAuthorization {
 
     private(set) var state: LocationAccessState = .notDetermined
 
-    private let manager = CLLocationManager()
+    // CLLocationManager needs a run loop, so it is created on first use from the
+    // main actor rather than in init. AppModel's init is nonisolated (SwiftUI may
+    // evaluate it outside a main-actor context), and forcing isolation there with
+    // assumeIsolated would trap rather than degrade.
+    private var manager: CLLocationManager?
     private let delegate = AuthorizationDelegate()
 
     // Continuations parked while the system prompt is on screen.
     private var pendingRequests: [CheckedContinuation<LocationAccessState, Never>] = []
 
-    init() {
-        let d = delegate
-        manager.delegate = d
-        d.setHandler { [weak self] status, accuracy in
+    nonisolated init() {}
+
+    /// Creates the underlying manager and reads the current status. Idempotent.
+    /// Call once during app setup, before anything reads `state`.
+    @discardableResult
+    func activate() -> LocationAccessState {
+        if let manager {
+            apply(status: manager.authorizationStatus, accuracy: manager.accuracyAuthorization)
+            return state
+        }
+        let manager = CLLocationManager()
+        manager.delegate = delegate
+        delegate.setHandler { [weak self] status, accuracy in
             Task { @MainActor [weak self] in
                 self?.apply(status: status, accuracy: accuracy)
             }
         }
+        self.manager = manager
         apply(status: manager.authorizationStatus, accuracy: manager.accuracyAuthorization)
+        return state
     }
 
     /// Presents the system prompt when the status is still undetermined and
@@ -102,6 +117,7 @@ final class LocationAuthorization {
     /// once authorization has already been decided.
     @discardableResult
     func requestIfNeeded() async -> LocationAccessState {
+        let manager = self.manager ?? { activate(); return self.manager! }()
         guard state == .notDetermined else { return state }
         return await withCheckedContinuation { (continuation: CheckedContinuation<LocationAccessState, Never>) in
             pendingRequests.append(continuation)

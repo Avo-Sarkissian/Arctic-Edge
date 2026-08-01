@@ -89,6 +89,7 @@ struct RunHistoryView: View {
             Text("No runs yet")
                 .font(Theme.Typography.title)
                 .foregroundStyle(Theme.Palette.textSecondary)
+                .accessibilityIdentifier("history.emptyState")
             Text("Start a day and ArcticEdge will record and score each run automatically.")
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.Palette.textTertiary)

@@ -191,16 +191,18 @@ final class AppModel {
         self.activityManager = ActivityManager()
         self.activityClassifier = ActivityClassifier()
         self.altimeterManager = AltimeterManager()
-        // LocationAuthorization owns a CLLocationManager, which must be created
-        // on the main thread. AppModel is @MainActor apart from this init, and
-        // the App struct constructs it during main-actor scene setup.
-        self.locationAuthorization = MainActor.assumeIsolated { LocationAuthorization() }
+        // Its CLLocationManager is created later, from setupPipelineAsync, so
+        // this nonisolated init does not have to assert main-actor isolation.
+        self.locationAuthorization = LocationAuthorization()
     }
 
     // Called once from the WindowGroup .task modifier.
     // Initializes PersistenceService on a background queue via Task.detached,
     // then registers lifecycle observers.
     func setupPipelineAsync() async {
+        // Bring up Core Location authorization tracking before anything reads it.
+        locationAuthorization.activate()
+
         // PersistenceService must be created on a non-MainActor executor.
         // Task.detached detaches from the current (MainActor) executor, ensuring the
         // @ModelActor init runs on the model actor's background serial queue.

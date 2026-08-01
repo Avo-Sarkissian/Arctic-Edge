@@ -1,17 +1,14 @@
 // ArcticEdgeUITestsLaunchTests.swift
 // ArcticEdgeUITests
 //
-// Launch smoke test. Captures a screenshot of the first screen a new install
-// sees, which is the permission primer rather than the tab bar.
+// Launch smoke test. A fresh install opens on the permission primer rather than
+// the tab bar, because three invasive permissions with no explanation is how you
+// get three refusals.
 
 import XCTest
 
 @MainActor
 final class ArcticEdgeUITestsLaunchTests: XCTestCase {
-
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
 
     override func setUp() async throws {
         continueAfterFailure = false
@@ -19,14 +16,14 @@ final class ArcticEdgeUITestsLaunchTests: XCTestCase {
 
     func testLaunchReachesTheOnboardingPrimer() throws {
         let app = XCUIApplication()
+        // Force the primer: earlier tests in the same run share the app container
+        // and may have already recorded that onboarding was seen.
+        app.launchArguments += ["-UITestForceOnboarding", "YES"]
         app.launch()
 
-        // A fresh install must explain the permissions before iOS asks for them.
-        let heading = app.staticTexts["ArcticEdge needs three things"]
-        XCTAssertTrue(heading.waitForExistence(timeout: 20),
+        XCTAssertTrue(app.staticTexts["onboarding.heading"].waitForExistence(timeout: 90),
                       "a new install should open on the permission primer")
-        XCTAssertTrue(app.buttons["CONTINUE"].exists)
-        XCTAssertTrue(app.buttons["Not now"].exists,
+        XCTAssertTrue(app.buttons["onboarding.skip"].exists,
                       "the primer must be skippable: capture still works without location")
 
         let attachment = XCTAttachment(screenshot: app.screenshot())

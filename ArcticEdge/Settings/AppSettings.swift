@@ -34,9 +34,17 @@ final class AppSettings {
         // Default to the region's own convention rather than forcing metric.
         let stored = defaults.string(forKey: Key.unitSystem)
         self.unitSystem = stored.flatMap(UnitSystem.init(rawValue:)) ?? AppSettings.regionDefault()
-        // UI tests that exercise the tabs launch past the primer.
-        let skipOnboarding = ProcessInfo.processInfo.arguments.contains("-UITestSkipOnboarding")
-        self.hasCompletedOnboarding = skipOnboarding || defaults.bool(forKey: Key.hasCompletedOnboarding)
+        // UI tests either skip past the primer to reach the tabs, or force it to
+        // verify a first-launch experience the shared app container would
+        // otherwise have already dismissed.
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-UITestForceOnboarding") {
+            self.hasCompletedOnboarding = false
+        } else if arguments.contains("-UITestSkipOnboarding") {
+            self.hasCompletedOnboarding = true
+        } else {
+            self.hasCompletedOnboarding = defaults.bool(forKey: Key.hasCompletedOnboarding)
+        }
     }
 
     /// Metric everywhere except the few regions that measure distance in miles.

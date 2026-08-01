@@ -259,6 +259,8 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("today.sessionAction")
+        .accessibilityLabel(appModel.isDayActive ? "End day" : "Start day")
     }
 
     // MARK: - Notices
