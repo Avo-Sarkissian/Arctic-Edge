@@ -6,7 +6,7 @@
 //
 // Requirements covered:
 //   LIVE-01: Waveform snapshot builds from incoming FilteredFrames
-//   LIVE-02: Metric values (pitch, roll, g-force) update from FilteredFrame
+//   LIVE-02: Metric values (g-force, horizontal load) update from FilteredFrame
 //   LIVE-03: Waveform snapshot never exceeds windowSize (1000 frames)
 
 import Testing
@@ -20,9 +20,8 @@ struct LiveViewModelTests {
 
     /// Produces a minimal FilteredFrame with the given fields; all others default to 0.
     private func makeFrame(
-        filteredAccelZ: Double = 0,
-        pitch: Double = 0,
-        roll: Double = 0,
+        filteredVerticalAccel: Double = 0,
+        horizontalAccelMagnitude: Double = 0,
         userAccelX: Double = 0,
         userAccelY: Double = 0,
         userAccelZ: Double = 0
@@ -30,8 +29,8 @@ struct LiveViewModelTests {
         FilteredFrame(
             timestamp: 0,
             runID: UUID(),
-            pitch: pitch,
-            roll: roll,
+            pitch: 0,
+            roll: 0,
             yaw: 0,
             userAccelX: userAccelX,
             userAccelY: userAccelY,
@@ -42,7 +41,9 @@ struct LiveViewModelTests {
             rotationRateX: 0,
             rotationRateY: 0,
             rotationRateZ: 0,
-            filteredAccelZ: filteredAccelZ
+            filteredAccelZ: 0,
+            filteredVerticalAccel: filteredVerticalAccel,
+            horizontalAccelMagnitude: horizontalAccelMagnitude
         )
     }
 
@@ -62,7 +63,7 @@ struct LiveViewModelTests {
 
         // Feed 10 frames
         for i in 0..<10 {
-            continuation.yield(makeFrame(filteredAccelZ: Double(i)))
+            continuation.yield(makeFrame(filteredVerticalAccel: Double(i)))
         }
         continuation.finish()
 
@@ -81,8 +82,7 @@ struct LiveViewModelTests {
         await vm.startConsumingStream(stream)
 
         let frame = makeFrame(
-            pitch: 0.3,
-            roll: 0.1,
+            horizontalAccelMagnitude: 0.42,
             userAccelX: 0.5,
             userAccelY: 0.3,
             userAccelZ: 0.8
@@ -93,14 +93,14 @@ struct LiveViewModelTests {
         // Wait for the stream task to process the frame
         try await Task.sleep(for: .milliseconds(100))
 
-        let pitch = await vm.pitch
-        let roll = await vm.roll
         let gForce = await vm.gForce
+        let horizontalLoad = await vm.horizontalLoad
         let expectedGForce = hypot(0.5, hypot(0.3, 0.8))
 
-        #expect(pitch == 0.3)
-        #expect(roll == 0.1)
+        // Device pitch and roll are deliberately absent: in a pocket they measure
+        // how the phone is sitting, not how the skier is skiing.
         #expect(abs(gForce - expectedGForce) < 1e-9)
+        #expect(horizontalLoad == 0.42)
     }
 
     @Test("snapshot never exceeds windowSize")
@@ -112,7 +112,7 @@ struct LiveViewModelTests {
 
         // Feed 1200 frames (exceeds 1000-sample window)
         for i in 0..<1200 {
-            continuation.yield(makeFrame(filteredAccelZ: Double(i)))
+            continuation.yield(makeFrame(filteredVerticalAccel: Double(i)))
         }
         continuation.finish()
 

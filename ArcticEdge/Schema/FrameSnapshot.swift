@@ -29,6 +29,10 @@ nonisolated struct FrameSnapshot: Sendable {
     let rotationRateY: Double
     let rotationRateZ: Double
     let filteredAccelZ: Double
+    // Gravity-referenced channels. nil on rows captured before the projection
+    // existed; charts fall back to drawing nothing rather than a bogus line.
+    let filteredVerticalAccel: Double?
+    let horizontalAccelMagnitude: Double?
     let gpsSpeed: Double?
     // Accuracy of the fix that gpsSpeed came from, so stats can reject bad samples.
     let gpsHorizontalAccuracy: Double?
@@ -52,6 +56,8 @@ nonisolated struct FrameSnapshot: Sendable {
         self.rotationRateY = record.rotationRateY
         self.rotationRateZ = record.rotationRateZ
         self.filteredAccelZ = record.filteredAccelZ
+        self.filteredVerticalAccel = record.filteredVerticalAccel
+        self.horizontalAccelMagnitude = record.horizontalAccelMagnitude
         self.gpsSpeed = record.gpsSpeed
         self.gpsHorizontalAccuracy = record.gpsHorizontalAccuracy
         self.gpsSpeedAccuracy = record.gpsSpeedAccuracy

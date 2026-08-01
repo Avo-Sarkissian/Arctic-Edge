@@ -2,9 +2,13 @@
 // ArcticEdge
 //
 // @Observable @MainActor bridge between StreamBroadcaster and LiveTelemetryView.
-// Three waveform buffers — all filled from the 100Hz FilteredFrame stream:
-//   waveformSnapshot — filteredAccelZ (carve pressure, centered around 0g)
+// Three waveform buffers, all filled from the 100Hz FilteredFrame stream:
+//   waveformSnapshot — filteredVerticalAccel (gravity-referenced vertical load)
 //   gForceSnapshot   — userAccel magnitude (orientation-independent total load)
+//
+// The vertical channel replaced a high-pass of the raw device z axis. In a pocket
+// the device frame points in an arbitrary direction, so that signal varied with
+// how the phone was sitting rather than with how the skier was skiing.
 // GPS speed is separate (1Hz from AppModel) and fed via appendGPSSpeed(_:).
 // GPS speed is NOT in FilteredFrame; read from appModel.lastGPSSpeed (10Hz HUD).
 
@@ -19,9 +23,10 @@ final class LiveViewModel {
     private(set) var waveformSnapshot: [Double] = []
     private(set) var gForceSnapshot: [Double] = []
     private(set) var gpsSnapshot: [Double] = []
-    private(set) var pitch: Double = 0
-    private(set) var roll: Double = 0
     private(set) var gForce: Double = 0
+    /// Magnitude of acceleration in the horizontal plane: the closest honest
+    /// stand-in for turn loading a single pocket phone can offer.
+    private(set) var horizontalLoad: Double = 0
 
     // MARK: - Configuration
 
@@ -47,15 +52,14 @@ final class LiveViewModel {
                 guard let self else { return }
                 let mag = hypot(frame.userAccelX, hypot(frame.userAccelY, frame.userAccelZ))
 
-                waveformSnapshot.append(frame.filteredAccelZ)
+                waveformSnapshot.append(frame.filteredVerticalAccel)
                 if waveformSnapshot.count > windowSize { waveformSnapshot.removeFirst() }
 
                 gForceSnapshot.append(mag)
                 if gForceSnapshot.count > windowSize { gForceSnapshot.removeFirst() }
 
-                pitch = frame.pitch
-                roll = frame.roll
                 gForce = mag
+                horizontalLoad = frame.horizontalAccelMagnitude
             }
         }
     }
@@ -73,9 +77,8 @@ final class LiveViewModel {
         waveformSnapshot = []
         gForceSnapshot = []
         gpsSnapshot = []
-        pitch = 0
-        roll = 0
         gForce = 0
+        horizontalLoad = 0
     }
 
     // MARK: - Test support
@@ -86,13 +89,12 @@ final class LiveViewModel {
             for await frame in stream {
                 guard let self else { return }
                 let mag = hypot(frame.userAccelX, hypot(frame.userAccelY, frame.userAccelZ))
-                waveformSnapshot.append(frame.filteredAccelZ)
+                waveformSnapshot.append(frame.filteredVerticalAccel)
                 if waveformSnapshot.count > windowSize { waveformSnapshot.removeFirst() }
                 gForceSnapshot.append(mag)
                 if gForceSnapshot.count > windowSize { gForceSnapshot.removeFirst() }
-                pitch = frame.pitch
-                roll = frame.roll
                 gForce = mag
+                horizontalLoad = frame.horizontalAccelMagnitude
             }
         }
     }

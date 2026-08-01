@@ -208,7 +208,18 @@ actor MotionManager {
         gravityX: Double, gravityY: Double, gravityZ: Double,
         rotationRateX: Double, rotationRateY: Double, rotationRateZ: Double
     ) async {
-        let filteredAccelZ = filter.apply(userAccelZ)
+        // Project onto gravity BEFORE filtering. The pocket orientation is
+        // arbitrary and can shift mid-run, so filtering a raw device axis produced
+        // a signal whose amplitude depended on how the phone happened to sit.
+        // The gravity-aligned vertical is the same physical quantity for everyone.
+        let projected = FilteredFrame.project(
+            accel: SIMD3(userAccelX, userAccelY, userAccelZ),
+            gravityX: gravityX, gravityY: gravityY, gravityZ: gravityZ
+        )
+        let filteredVerticalAccel = filter.apply(projected.vertical)
+        // Legacy column, no longer read by anything. Kept unfiltered-by-gravity so
+        // existing rows and the new ones stay consistent in meaning.
+        let filteredAccelZ = userAccelZ
         let frame = FilteredFrame(
             timestamp: timestamp,
             runID: runID,
@@ -224,7 +235,9 @@ actor MotionManager {
             rotationRateX: rotationRateX,
             rotationRateY: rotationRateY,
             rotationRateZ: rotationRateZ,
-            filteredAccelZ: filteredAccelZ
+            filteredAccelZ: filteredAccelZ,
+            filteredVerticalAccel: filteredVerticalAccel,
+            horizontalAccelMagnitude: projected.horizontalMagnitude
         )
         await ringBuffer.append(frame)
         await broadcaster?.broadcast(frame)

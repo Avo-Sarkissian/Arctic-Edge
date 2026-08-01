@@ -2,7 +2,7 @@
 // ArcticEdge
 //
 // Post-run analysis sheet presenting per-run stats, session aggregates,
-// and three interactive Swift Charts (carve pressure, g-force, GPS speed).
+// and three interactive Swift Charts (vertical load, g-force, GPS speed).
 // chartXSelection drives the scrubber for ANLYS-04.
 //
 // Presented as a .sheet from TodayTabView (plan 03-06) on run end.
@@ -136,10 +136,14 @@ struct PostRunAnalysisView: View {
         VStack(alignment: .leading, spacing: 20) {
             sectionHeader("TELEMETRY")
 
-            // Carve pressure (hero signal)
+            // Vertical load: acceleration along gravity, high-pass filtered.
+            // Not "carve pressure": a single pocket phone cannot measure the
+            // pressure on either ski. This is whole-body vertical loading.
             chartView(
-                title: "CARVE PRESSURE",
-                data: viewModel.snapshots.map { ($0.timestamp, $0.filteredAccelZ) },
+                title: "VERTICAL LOAD",
+                data: viewModel.snapshots.compactMap { snap in
+                    snap.filteredVerticalAccel.map { (snap.timestamp, $0) }
+                },
                 color: Color(red: 0.12, green: 0.56, blue: 1.0)
             )
 
@@ -215,16 +219,20 @@ struct PostRunAnalysisView: View {
         }
     }
 
-    // Scrubber annotation: shows pitch, roll, gForce, speed at selected timestamp
+    // Scrubber annotation at the selected timestamp.
+    //
+    // Device pitch and roll used to be shown here in degrees. For a pocket-worn
+    // phone those are the orientation of the phone in the pocket, not the skier's
+    // body angle, so they were presented as insight while measuring nothing.
+    // Replaced with the gravity-referenced channels the scoring engine trusts.
     private func scrubberAnnotation(at timestamp: TimeInterval) -> some View {
         let frame = viewModel.selectSnapshot(at: timestamp)
         return VStack(alignment: .leading, spacing: 3) {
             if let f = frame {
-                Text(String(format: "P: %.1f° R: %.1f°",
-                            f.pitch * 180 / .pi, f.roll * 180 / .pi))
-                Text(String(format: "G: %.2fg  %.0f km/h",
+                Text(String(format: "G: %.2fg   LAT: %@",
                             hypot(f.userAccelX, hypot(f.userAccelY, f.userAccelZ)),
-                            (f.gpsSpeed ?? 0) * 3.6))
+                            f.horizontalAccelMagnitude.map { String(format: "%.2fg", $0) } ?? "—"))
+                Text("\(MetricFormatter.speedWithUnit(f.gpsSpeed))")
             }
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))

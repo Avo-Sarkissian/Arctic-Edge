@@ -2,7 +2,7 @@
 // ArcticEdge
 //
 // Full-screen live telemetry dashboard. Three stacked live graph channels:
-//   1. CARVE PRESSURE — filteredAccelZ, centered ±1g, arctic blue
+//   1. VERTICAL LOAD  — gravity-referenced vertical accel, centered ±1g, arctic blue
 //   2. G-FORCE        — userAccel magnitude, 0–3.5g, mint green
 //   3. GPS SPEED      — 0–40 m/s (144 km/h), amber
 //
@@ -52,7 +52,7 @@ struct LiveTelemetryView: View {
                 topBar
 
                 // Three equal-height live graph channels
-                carvePressureGraph
+                verticalLoadGraph
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 channelDivider
                 gForceGraph
@@ -154,9 +154,9 @@ struct LiveTelemetryView: View {
             .frame(height: 0.5)
     }
 
-    // MARK: - Graph 1: Carve Pressure (filteredAccelZ, centered ±1g)
+    // MARK: - Graph 1: Vertical load (gravity-projected accel, centered ±1g)
 
-    private var carvePressureGraph: some View {
+    private var verticalLoadGraph: some View {
         ZStack(alignment: .topLeading) {
             Color.black.opacity(0.22)
 
@@ -212,7 +212,7 @@ struct LiveTelemetryView: View {
                 }
             }
 
-            Text("CARVE PRESSURE")
+            Text("VERTICAL LOAD")
                 .font(.system(size: 8, weight: .medium))
                 .tracking(2.5)
                 .foregroundStyle(Color(red: 0.30, green: 0.75, blue: 1.0).opacity(0.55))

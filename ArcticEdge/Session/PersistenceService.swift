@@ -29,6 +29,8 @@ actor PersistenceService {
             record.gpsHorizontalAccuracy = fix?.horizontalAccuracy
             record.gpsSpeedAccuracy = fix?.speedAccuracy
             record.relativeAltitude = altitude
+            record.filteredVerticalAccel = frame.filteredVerticalAccel
+            record.horizontalAccelMagnitude = frame.horizontalAccelMagnitude
             record.wallClock = uptimeClock.date(forUptime: frame.timestamp)
             modelContext.insert(record)
         }
