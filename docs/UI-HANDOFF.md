@@ -1,3 +1,27 @@
+# Carving Score UI Handoff (DELIVERED 2026-08-01)
+
+> **Status: complete.** This brief was executed. The score is live on the post run
+> screen, in history rows and day headers, and on the Today tab. Theme tokens were
+> extracted to `ArcticEdge/Support/Theme.swift` first, as the brief asked.
+>
+> What was built beyond the brief:
+> - **Turn ledger.** The brief did not specify a visual treatment beyond "one large
+>   calm number". The chosen signature is a ledger of the run's actual turns, drawn
+>   at the time each happened, left above the centreline and right below, width
+>   from real duration. Even spacing is measured cadence and a balanced split is
+>   measured symmetry: the same two quantities the Rhythm pillar scores. A circular
+>   progress ring was rejected as saying nothing about skiing.
+> - **Day aggregate.** `AppModel.daySummary` averages today's scored runs, filling
+>   the dead ContentView stats row the brief flagged.
+> - **Shortfall copy.** The "not enough data" state names the gate the run missed
+>   rather than stating the fact alone.
+> - **Score bands** use a cold ramp (slate, arctic, glacier, lit snow) instead of
+>   red to green. A skier working on technique is not in a failure state.
+>
+> The section below is the original brief, kept for the record.
+
+---
+
 # Carving Score UI Handoff
 
 The carving score engine is built, tested, and wired into the data model. This is the brief for the UI pass (the Claude design step): what data is available, where to surface it, the theme work to do first, and the honesty rules that constrain the copy.
