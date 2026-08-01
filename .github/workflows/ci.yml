@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode.app
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # Compile check first: it needs no simulator and fails fast on the most
+      # common breakage. Strict concurrency is on for every target, so this also
+      # catches actor isolation regressions.
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme ArcticEdge \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build.log
+
+      # The project treats warnings as work to be done, so surface any that
+      # appear rather than letting them accumulate silently.
+      - name: Fail on new warnings
+        run: |
+          if grep -E "warning:" build.log | grep -v "appintentsmetadataprocessor" | sort -u | grep .; then
+            echo "::error::Build produced warnings"
+            exit 1
+          fi
+          echo "No warnings."
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme ArcticEdge \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -only-testing:ArcticEdgeTests \
+            | tee unit-tests.log
+
+      # UI tests relaunch the app per case and are slower, so they run last and
+      # are allowed to be the long pole rather than blocking earlier signal.
+      - name: UI tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme ArcticEdge \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -only-testing:ArcticEdgeUITests \
+            | tee ui-tests.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-and-test-logs
+          path: |
+            build.log
+            unit-tests.log
+            ui-tests.log
+          retention-days: 7
+          if-no-files-found: ignore

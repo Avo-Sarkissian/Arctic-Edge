@@ -14,15 +14,21 @@ import SwiftUI
 
 struct LiveTelemetryView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(AppSettings.self) private var settings
     @State private var liveViewModel = LiveViewModel()
     @State private var elapsedSeconds: Int = 0
     @State private var isEndingDay = false
     @State private var presentedRunID: UUID? = nil
     @State private var dismissedRunIDs: Set<UUID> = []
 
-    private let arcticBlue = Color(red: 0.12, green: 0.56, blue: 1.0)
-    private let mintGreen  = Color(red: 0.15, green: 0.85, blue: 0.55)
-    private let speedAmber = Color(red: 1.0,  green: 0.62, blue: 0.10)
+    private let arcticBlue = Theme.Palette.arctic
+    private let mintGreen  = Theme.Palette.mint
+    private let speedAmber = Theme.Palette.amber
+    // Brighter variants for the waveform strokes, which sit on near-black and
+    // need more lift than a label does.
+    private let arcticStroke = Color(red: 0.30, green: 0.75, blue: 1.0)
+    private let mintStroke   = Color(red: 0.25, green: 0.95, blue: 0.65)
+    private let amberStroke  = Color(red: 1.0,  green: 0.80, blue: 0.25)
 
     // MARK: - Derived
 
@@ -36,9 +42,9 @@ struct LiveTelemetryView: View {
 
     private var stateColor: Color {
         switch appModel.classifierStateLabel {
-        case "SKIING":    return Color(red: 0.20, green: 0.90, blue: 0.50)
-        case "CHAIRLIFT": return Color(red: 1.0,  green: 0.75, blue: 0.0)
-        default:          return Color.white.opacity(0.35)
+        case "SKIING":    return Theme.Palette.mint
+        case "CHAIRLIFT": return Theme.Palette.caution
+        default:          return Theme.Palette.textTertiary
         }
     }
 
@@ -71,6 +77,7 @@ struct LiveTelemetryView: View {
             if let runID = presentedRunID {
                 PostRunAnalysisView(runID: runID)
                     .environment(appModel)
+                    .environment(settings)
                     .onDisappear { clearPresentedRun() }
             }
         }
@@ -97,15 +104,7 @@ struct LiveTelemetryView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        LinearGradient(
-            stops: [
-                .init(color: Color(red: 0.04, green: 0.06, blue: 0.09), location: 0),
-                .init(color: Color(red: 0.02, green: 0.03, blue: 0.06), location: 1)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        Theme.Gradients.slate.ignoresSafeArea()
     }
 
     // MARK: - Top bar
@@ -191,7 +190,7 @@ struct LiveTelemetryView: View {
                     }
                     fill.addLine(to: CGPoint(x: size.width, y: midY))
                     fill.closeSubpath()
-                    ctx.fill(fill, with: .color(Color(red: 0.12, green: 0.56, blue: 1.0).opacity(0.18)))
+                    ctx.fill(fill, with: .color(arcticBlue.opacity(0.18)))
 
                     // Waveform line: 3-pass glow
                     var path = Path()
@@ -200,9 +199,9 @@ struct LiveTelemetryView: View {
                         path.addLine(to: CGPoint(x: CGFloat(i + 1) * xStep,
                                                  y: midY - CGFloat(s) * scale))
                     }
-                    ctx.stroke(path, with: .color(Color(red: 0.12, green: 0.56, blue: 1.0).opacity(0.18)), lineWidth: 12)
-                    ctx.stroke(path, with: .color(Color(red: 0.20, green: 0.65, blue: 1.0).opacity(0.38)), lineWidth: 5)
-                    ctx.stroke(path, with: .color(Color(red: 0.30, green: 0.75, blue: 1.0)), lineWidth: 2.0)
+                    ctx.stroke(path, with: .color(arcticBlue.opacity(0.18)), lineWidth: 12)
+                    ctx.stroke(path, with: .color(arcticStroke.opacity(0.38)), lineWidth: 5)
+                    ctx.stroke(path, with: .color(arcticStroke), lineWidth: 2.0)
 
                     // Right-edge "now" cursor
                     var cur = Path()
@@ -215,7 +214,7 @@ struct LiveTelemetryView: View {
             Text("VERTICAL LOAD")
                 .font(.system(size: 8, weight: .medium))
                 .tracking(2.5)
-                .foregroundStyle(Color(red: 0.30, green: 0.75, blue: 1.0).opacity(0.55))
+                .foregroundStyle(arcticStroke.opacity(0.55))
                 .padding(.leading, 12)
                 .padding(.top, 8)
         }
@@ -269,7 +268,7 @@ struct LiveTelemetryView: View {
                     }
                     fill.addLine(to: CGPoint(x: size.width, y: base))
                     fill.closeSubpath()
-                    ctx.fill(fill, with: .color(Color(red: 0.15, green: 0.85, blue: 0.55).opacity(0.18)))
+                    ctx.fill(fill, with: .color(mintGreen.opacity(0.18)))
 
                     // Line: 3-pass glow
                     var path = Path()
@@ -278,9 +277,9 @@ struct LiveTelemetryView: View {
                         path.addLine(to: CGPoint(x: CGFloat(i + 1) * xStep,
                                                  y: base - CGFloat(s) * scale))
                     }
-                    ctx.stroke(path, with: .color(Color(red: 0.15, green: 0.85, blue: 0.55).opacity(0.18)), lineWidth: 12)
-                    ctx.stroke(path, with: .color(Color(red: 0.20, green: 0.90, blue: 0.60).opacity(0.38)), lineWidth: 5)
-                    ctx.stroke(path, with: .color(Color(red: 0.25, green: 0.95, blue: 0.65)), lineWidth: 2.0)
+                    ctx.stroke(path, with: .color(mintGreen.opacity(0.18)), lineWidth: 12)
+                    ctx.stroke(path, with: .color(mintStroke.opacity(0.38)), lineWidth: 5)
+                    ctx.stroke(path, with: .color(mintStroke), lineWidth: 2.0)
 
                     // Cursor
                     var cur = Path()
@@ -293,7 +292,7 @@ struct LiveTelemetryView: View {
             Text("G-FORCE")
                 .font(.system(size: 8, weight: .medium))
                 .tracking(2.5)
-                .foregroundStyle(Color(red: 0.25, green: 0.95, blue: 0.65).opacity(0.55))
+                .foregroundStyle(mintStroke.opacity(0.55))
                 .padding(.leading, 12)
                 .padding(.top, 8)
         }
@@ -347,7 +346,7 @@ struct LiveTelemetryView: View {
                     }
                     fill.addLine(to: CGPoint(x: size.width, y: base))
                     fill.closeSubpath()
-                    ctx.fill(fill, with: .color(Color(red: 1.0, green: 0.62, blue: 0.10).opacity(0.18)))
+                    ctx.fill(fill, with: .color(speedAmber.opacity(0.18)))
 
                     // Line: 3-pass glow
                     var path = Path()
@@ -356,9 +355,9 @@ struct LiveTelemetryView: View {
                         path.addLine(to: CGPoint(x: CGFloat(i + 1) * xStep,
                                                  y: base - CGFloat(s) * scale))
                     }
-                    ctx.stroke(path, with: .color(Color(red: 1.0, green: 0.62, blue: 0.10).opacity(0.18)), lineWidth: 12)
-                    ctx.stroke(path, with: .color(Color(red: 1.0, green: 0.70, blue: 0.15).opacity(0.38)), lineWidth: 5)
-                    ctx.stroke(path, with: .color(Color(red: 1.0, green: 0.80, blue: 0.25)), lineWidth: 2.0)
+                    ctx.stroke(path, with: .color(speedAmber.opacity(0.18)), lineWidth: 12)
+                    ctx.stroke(path, with: .color(amberStroke.opacity(0.38)), lineWidth: 5)
+                    ctx.stroke(path, with: .color(amberStroke), lineWidth: 2.0)
 
                     // Cursor
                     var cur = Path()
@@ -368,10 +367,10 @@ struct LiveTelemetryView: View {
                 }
             }
 
-            Text("GPS SPEED  km/h")
+            Text("GPS SPEED")
                 .font(.system(size: 8, weight: .medium))
                 .tracking(2.5)
-                .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.25).opacity(0.55))
+                .foregroundStyle(amberStroke.opacity(0.55))
                 .padding(.leading, 12)
                 .padding(.top, 8)
 
@@ -397,9 +396,11 @@ struct LiveTelemetryView: View {
             // Current-value metric tiles (all pocket-safe / orientation-independent)
             HStack(spacing: 0) {
                 metricTile(
-                    label: "KM/H",
-                    value: appModel.lastGPSSpeed >= 0
-                        ? String(format: "%.0f", appModel.lastGPSSpeed * 3.6) : "--",
+                    label: settings.unitSystem.speedSuffix.uppercased(),
+                    value: MetricFormatter.speed(
+                        appModel.lastGPSSpeed >= 0 ? appModel.lastGPSSpeed : nil,
+                        units: settings.unitSystem
+                    ),
                     accent: speedAmber
                 )
                 Rectangle().fill(Color.white.opacity(0.08)).frame(width: 0.5, height: 36)
@@ -409,9 +410,12 @@ struct LiveTelemetryView: View {
                     accent: mintGreen
                 )
                 Rectangle().fill(Color.white.opacity(0.08)).frame(width: 0.5, height: 36)
+                // Lateral load, gravity-referenced. Replaced a raw g-variance
+                // readout, which was an internal classifier number with no
+                // meaning to a skier.
                 metricTile(
-                    label: "G² VAR",
-                    value: String(format: "%.4f", appModel.lastGForceVariance),
+                    label: "LATERAL",
+                    value: String(format: "%.2fg", liveViewModel.horizontalLoad),
                     accent: arcticBlue
                 )
             }

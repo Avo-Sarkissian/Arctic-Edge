@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: complete
-stopped_at: Completed 04-02-PLAN.md — Phase 4 done (PowerSaver, debug overlay, MetricKit, CalibrationExporter)
-last_updated: "2026-03-14T00:00:00.000Z"
-last_activity: 2026-03-14 — Phase 4 complete (plans 04-01, 04-02)
+stopped_at: Post-roadmap hardening complete; awaiting field validation
+last_updated: "2026-08-01T00:00:00.000Z"
+last_activity: 2026-08-01 — capture, data spine, metric honesty, score UI, calibration and polish passes
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,16 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Every carving frame captured, every run segmented automatically — no data lost, no manual intervention required on the mountain.
-**Current focus:** Phase 1 — Motion Engine & Session Foundation
+**Current focus:** On-mountain validation and carving score calibration
 
 ## Current Position
 
-Phase: 1 of 4 (Motion Engine & Session Foundation)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-03-09 — Plan 01-01 completed (Motion Engine)
+All four build phases are complete, as are the post-roadmap passes of 2026-08-01
+(capture reliability, data spine, metric honesty, score UI, calibration and
+polish). The body of this file previously claimed Phase 1 was in progress while
+the frontmatter claimed 100 percent; the frontmatter was right.
 
-Progress: [█████░░░░░] 50%
+Status: feature complete, pending on-mountain validation.
+Next: a real ski day with the screen locked, then a labelling pass to move the
+carving score anchors off their provisional values.
+
+Progress: [██████████] 100%
 
 ## Performance Metrics
 

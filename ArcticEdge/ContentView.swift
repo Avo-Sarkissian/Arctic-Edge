@@ -11,6 +11,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(AppSettings.self) private var settings
     @State private var errorMessage: String? = nil
 
     // Wordmark breathing animation state — active when day is running.
@@ -207,7 +208,7 @@ struct ContentView: View {
                 tint: ScoreBand.color(for: appModel.daySummary.averageScore)
             )
             StatCard(label: "RUNS", value: "\(appModel.daySummary.runCount)")
-            StatCard(label: "VERT", value: MetricFormatter.altitudeWithUnit(appModel.daySummary.totalVertical))
+            StatCard(label: "VERT", value: MetricFormatter.altitudeWithUnit(appModel.daySummary.totalVertical, units: settings.unitSystem))
         }
     }
 
@@ -335,4 +336,5 @@ private struct StatCard: View {
 #Preview {
     ContentView()
         .environment(AppModel())
+        .environment(AppSettings())
 }

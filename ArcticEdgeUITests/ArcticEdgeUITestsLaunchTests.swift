@@ -1,29 +1,33 @@
+// ArcticEdgeUITestsLaunchTests.swift
+// ArcticEdgeUITests
 //
-//  ArcticEdgeUITestsLaunchTests.swift
-//  ArcticEdgeUITests
-//
-//  Created by Avo Sarkissian on 3/8/26.
-//
+// Launch smoke test. Captures a screenshot of the first screen a new install
+// sees, which is the permission primer rather than the tab bar.
 
 import XCTest
 
+@MainActor
 final class ArcticEdgeUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
     }
 
-    @MainActor
-    func testLaunch() throws {
+    func testLaunchReachesTheOnboardingPrimer() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
+        // A fresh install must explain the permissions before iOS asks for them.
+        let heading = app.staticTexts["ArcticEdge needs three things"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 20),
+                      "a new install should open on the permission primer")
+        XCTAssertTrue(app.buttons["CONTINUE"].exists)
+        XCTAssertTrue(app.buttons["Not now"].exists,
+                      "the primer must be skippable: capture still works without location")
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"

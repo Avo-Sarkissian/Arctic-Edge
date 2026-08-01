@@ -15,6 +15,7 @@ import SwiftUI
 
 struct RunHistoryView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(AppSettings.self) private var settings
     @State private var viewModel = HistoryViewModel()
 
     var body: some View {
@@ -30,10 +31,11 @@ struct RunHistoryView: View {
                             Section {
                                 ForEach(Array(group.runs.enumerated()), id: \.element.id) { index, run in
                                     NavigationLink(destination:
-                                        PostRunAnalysisView(runID: run.runID)
+                                        PostRunAnalysisView(runID: run.runID, isLiveRun: false)
                                             .environment(appModel)
+                                            .environment(settings)
                                     ) {
-                                        RunRowView(run: run, runNumber: index + 1)
+                                        RunRowView(run: run, runNumber: index + 1, units: settings.unitSystem)
                                     }
                                     .listRowBackground(Color.white.opacity(0.04))
                                     .listRowSeparatorTint(.white.opacity(0.08))
@@ -53,7 +55,7 @@ struct RunHistoryView: View {
                                     }
                                 }
                             } header: {
-                                DayHeaderView(group: group)
+                                DayHeaderView(group: group, units: settings.unitSystem)
                             }
                         }
 
@@ -100,6 +102,7 @@ struct RunHistoryView: View {
 
 private struct DayHeaderView: View {
     let group: DayGroup
+    let units: UnitSystem
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -124,7 +127,7 @@ private struct DayHeaderView: View {
                         .monospacedDigit()
                         .foregroundStyle(ScoreBand.color(for: group.averageScore))
                 }
-                Text("\(group.runCount) \(group.runCount == 1 ? "run" : "runs") · \(MetricFormatter.altitudeWithUnit(group.totalVertical)) vert")
+                Text("\(group.runCount) \(group.runCount == 1 ? "run" : "runs") · \(MetricFormatter.altitudeWithUnit(group.totalVertical, units: units)) vert")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.Palette.textTertiary)
             }
@@ -138,6 +141,7 @@ private struct DayHeaderView: View {
 private struct RunRowView: View {
     let run: RunRow
     let runNumber: Int
+    let units: UnitSystem
 
     var body: some View {
         HStack(spacing: Theme.Spacing.s) {
@@ -149,8 +153,8 @@ private struct RunRowView: View {
 
             Spacer(minLength: 0)
 
-            metricColumn(value: MetricFormatter.speed(run.topSpeed), label: "km/h")
-            metricColumn(value: MetricFormatter.altitude(run.verticalDrop), label: "m vert")
+            metricColumn(value: MetricFormatter.speed(run.topSpeed, units: units), label: units.speedSuffix)
+            metricColumn(value: MetricFormatter.altitude(run.verticalDrop, units: units), label: "\(units.altitudeSuffix) vert")
             metricColumn(value: MetricFormatter.duration(run.duration), label: "time")
         }
         .padding(.vertical, 6)

@@ -52,6 +52,23 @@ struct LiveViewModelTests {
         AsyncStream<FilteredFrame>.makeStream()
     }
 
+    /// Waits until the view model has drained the expected number of frames.
+    /// A fixed sleep made these tests flaky: the consuming task is scheduled, so
+    /// 100 ms is usually but not always enough on a loaded machine.
+    private func waitForWaveform(
+        _ vm: LiveViewModel,
+        count: Int,
+        timeout: Duration = .seconds(5)
+    ) async throws -> Int {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            let current = await vm.waveformSnapshot.count
+            if current >= count { return current }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return await vm.waveformSnapshot.count
+    }
+
     // MARK: - Tests
 
     @Test("waveform snapshot builds from incoming frames")
@@ -67,10 +84,7 @@ struct LiveViewModelTests {
         }
         continuation.finish()
 
-        // Wait for the stream task to drain
-        try await Task.sleep(for: .milliseconds(100))
-
-        let count = await vm.waveformSnapshot.count
+        let count = try await waitForWaveform(vm, count: 10)
         #expect(count == 10)
     }
 
@@ -90,9 +104,7 @@ struct LiveViewModelTests {
         continuation.yield(frame)
         continuation.finish()
 
-        // Wait for the stream task to process the frame
-        try await Task.sleep(for: .milliseconds(100))
-
+        _ = try await waitForWaveform(vm, count: 1)
         let gForce = await vm.gForce
         let horizontalLoad = await vm.horizontalLoad
         let expectedGForce = hypot(0.5, hypot(0.3, 0.8))
@@ -116,10 +128,9 @@ struct LiveViewModelTests {
         }
         continuation.finish()
 
-        // Wait for the stream task to drain all 1200 frames
-        try await Task.sleep(for: .milliseconds(500))
-
-        let count = await vm.waveformSnapshot.count
+        // The window caps at 1000, so wait for it to saturate then confirm it
+        // does not grow past the cap.
+        let count = try await waitForWaveform(vm, count: 1000)
         #expect(count == 1000)
     }
 }

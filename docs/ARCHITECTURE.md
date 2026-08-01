@@ -1,6 +1,6 @@
 # ArcticEdge Architecture (Current State)
 
-**Captured:** 2026-06-28, from a full codebase analysis.
+**Captured:** 2026-06-28. **Updated:** 2026-08-01 after the capture, data spine, metric honesty, UI, and calibration passes.
 
 ArcticEdge is an iPhone ski telemetry app (iOS 18+, iPhone 16 Pro target). It captures a 100 Hz IMU stream, auto segments skiing from chairlift rides, and presents live and post run analysis. All four original build phases are complete, and the carving score engine (`Scoring/`) is built, tested, and wired through to persistence. The code is disciplined Swift 6 strict concurrency throughout (actors plus AsyncStream, no Combine), with roughly 80 Swift Testing cases (about 25 covering the scoring engine).
 
@@ -48,17 +48,21 @@ The Xcode project uses synchronized folder groups: any `.swift` file under `Arct
 - Good test coverage on motion, classification, persistence, and view models.
 - Consistent Arctic Dark styling.
 
-## Known issues (detail in CARVING-SCORE.md section 5)
+## Known issues
 
-Fixed in the carving score work:
+Resolved in the 2026-08-01 passes:
 
-1. **Per run frame tagging (FIXED, verify on device).** `MotionManager.ingest` now stamps the active run id, pushed from the classifier via the AppModel HUD poll. `FrameRecord.runID` matches `RunRecord.runID`. Known limitation: ~3 s onset window not tagged.
-2. **CalibrationExporter gyro/gravity (FIXED).** `FrameSnapshot`, `CalibrationFrame`, and the persistence projection now carry gravity and rotationRate. Exporter still has no UI trigger.
+1. **Background capture.** `UIBackgroundModes = location` is declared and `LocationAuthorization` requests when-in-use before GPS starts. Still needs on-device confirmation with the screen locked.
+2. **Clock domain.** Run start is wall clock, matching the end stamp. `UptimeClock` bridges CMDeviceMotion uptime to dates.
+3. **Ordered ingest.** Samples arrive on a serial queue through one AsyncStream, drained by a single task, so the biquad sees them in order. The filter is rebuilt when the rate throttles.
+4. **Score and stats coverage.** `RunFinalizer` scores and stats every run at finalization, independent of any view.
+5. **Metric honesty.** The live and post run channel is gravity projected vertical load, not device frame z. Vertical drop is barometric or nil. Speed is accuracy gated and reported at the 95th percentile.
+6. **Theme tokens.** `Support/Theme.swift` is the single source; views no longer carry literals.
+7. **Dead features.** Resort geocoding, orphan run recovery, and calibration export all have callers now.
+8. **Retention.** Raw frames expire after 30 days and orphaned frames are dropped; runs and scores are kept.
 
 Still open:
 
-3. **`filteredAccelZ` is the wrong axis** (raw device frame, not gravity vertical) and its filter cutoff drifts when the sample rate throttles (the biquad is built once at 100 Hz and never rebuilt). The carving score sidesteps this (it recomputes vertical from raw `userAccel` on gravity), but the live waveform still uses `filteredAccelZ`. Fix separately.
-4. **No shared theme tokens**: accent colors and the slate gradient are re declared across about six view files. Extract a theme module during the UI pass (see UI-HANDOFF.md).
-5. **Diagnostics has no test coverage** (CalibrationExporter, MetricKitSubscriber).
-6. **`ContentView` stats row is a dead placeholder** (RUNS / DISTANCE / ELAPSED render as dashes): a ready slot for a day level carving score.
-7. **verticalDrop uses phone pitch as a slope proxy** (flagged as a calibration concern), so vertical and distance are rough estimates.
+- **Anchor calibration.** `CarvingScoreModel.v1` anchors are literature derived. The score is labelled provisional until a labelled field data pass moves them. Export lives in Settings.
+- **On-mountain validation.** Nothing in this list has been confirmed on snow. Chairlift versus surface lift classification, cold weather battery behaviour, and background survival all need a real day.
+- **Per device normalisation.** Two phones in two pockets are not yet normalised against each other.

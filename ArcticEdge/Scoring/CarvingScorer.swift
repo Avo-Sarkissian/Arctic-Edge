@@ -12,12 +12,15 @@ import Foundation
 nonisolated enum CarvingScorer {
 
     static func score(frames: [ScoringFrame], model: CarvingScoreModel = .v1) -> CarvingScore {
-        let fs = model.analysisSampleRate
-
         // Basic data quality, independent of whether we can score.
         let duration = (frames.last?.timestamp ?? 0) - (frames.first?.timestamp ?? 0)
         let medianRate = medianSampleRate(frames)
         let gpsCoverage = frames.isEmpty ? 0 : Double(frames.filter { $0.gpsSpeed != nil }.count) / Double(frames.count)
+
+        // Clamp the analysis grid to what the run actually achieved. Resampling a
+        // 20 Hz run up to 50 Hz invents samples by linear interpolation, which
+        // cannot reproduce the content the spectral metrics look for.
+        let fs = medianRate > 0 ? min(model.analysisSampleRate, medianRate) : model.analysisSampleRate
 
         let turns = TurnSegmenter().detectTurns(frames, sampleRate: fs)
 
@@ -45,30 +48,49 @@ nonisolated enum CarvingScorer {
         let speed = SignalMath.resampleUniform(timestamps: timestamps, values: carryForwardSpeed(frames), sampleRate: fs)
 
         let gridCount = min(vertical.count, min(horizontal.count, min(angularSpeed.count, min(yaw.count, speed.count))))
-        let span = turnSpan(turns, gridCount: gridCount)
 
         // Pillar A: Control and Smoothness (no GPS).
-        let edgeSmoothRaw = SignalMath.sparc(slice(angularSpeed, span), sampleRate: fs)
-        let linkageRaw = SignalMath.logDimensionlessJerk(acceleration: slice(horizontal, span), dt: 1.0 / fs)
-        let chatterRaw = chatterEnergy(slice(vertical, span), sampleRate: fs, cutoff: model.chatterCutoffHz)
+        //
+        // SPARC and LDLJ-A are computed PER TURN and aggregated with a trimmed
+        // mean, as the design specifies. Computing them once over the whole run
+        // made both length dependent: LDLJ-A's raw value falls by 2*ln(2) for
+        // every doubling of duration, so against a frozen anchor a longer run of
+        // identical technique lost roughly 15% of the scale for being longer.
+        // The trimmed mean also stops one hero turn from carrying the run.
+        let edgeSmoothRaw = perTurnTrimmedMean(turns, gridCount: gridCount) { s, e in
+            SignalMath.sparc(Array(angularSpeed[s..<e]), sampleRate: fs)
+        }
+        let linkageRaw = perTurnTrimmedMean(turns, gridCount: gridCount) { s, e in
+            SignalMath.logDimensionlessJerk(acceleration: Array(horizontal[s..<e]), dt: 1.0 / fs)
+        }
+
+        // Chatter is spectral, so it only contributes when the run was captured
+        // fast enough to resolve the band it measures.
+        let spectralUsable = medianRate >= model.minSpectralSampleRate
+        let chatterRaw: Double? = spectralUsable
+            ? perTurnTrimmedMean(turns, gridCount: gridCount) { s, e in
+                chatterEnergy(Array(vertical[s..<e]), sampleRate: fs, cutoff: model.chatterCutoffHz)
+              }
+            : nil
 
         // Pillar B: Rhythm and Symmetry (no GPS).
         let cadenceRaw = SignalMath.coefficientOfVariation(turns.map { $0.duration })
         let symmetryRaw = symmetryIndex(turns, horizontal: horizontal)
 
-        var subMetrics: [SubMetricValue] = [
-            sub(.edgeTransitionSmoothness, edgeSmoothRaw, model),
-            sub(.linkageSmoothness, linkageRaw, model),
-            sub(.chatter, chatterRaw, model),
-            sub(.cadenceRegularity, cadenceRaw, model),
-            sub(.symmetry, symmetryRaw, model)
-        ]
+        var subMetrics: [SubMetricValue] = []
+        if let edgeSmoothRaw { subMetrics.append(sub(.edgeTransitionSmoothness, edgeSmoothRaw, model)) }
+        if let linkageRaw { subMetrics.append(sub(.linkageSmoothness, linkageRaw, model)) }
+        if let chatterRaw { subMetrics.append(sub(.chatter, chatterRaw, model)) }
+        subMetrics.append(sub(.cadenceRegularity, cadenceRaw, model))
+        subMetrics.append(sub(.symmetry, symmetryRaw, model))
 
-        let control01 = SignalMath.mean([
-            model.anchor(.edgeTransitionSmoothness).normalize(edgeSmoothRaw),
-            model.anchor(.linkageSmoothness).normalize(linkageRaw),
-            model.anchor(.chatter).normalize(chatterRaw)
-        ])
+        // The pillar re-normalises over whatever contributed, so a dropped
+        // spectral metric does not silently count as a zero.
+        var controlParts: [Double] = []
+        if let edgeSmoothRaw { controlParts.append(model.anchor(.edgeTransitionSmoothness).normalize(edgeSmoothRaw)) }
+        if let linkageRaw { controlParts.append(model.anchor(.linkageSmoothness).normalize(linkageRaw)) }
+        if let chatterRaw { controlParts.append(model.anchor(.chatter).normalize(chatterRaw)) }
+        let control01 = controlParts.isEmpty ? 0.5 : SignalMath.mean(controlParts)
         let rhythm01 = SignalMath.mean([
             model.anchor(.cadenceRegularity).normalize(cadenceRaw),
             model.anchor(.symmetry).normalize(symmetryRaw)
@@ -184,7 +206,9 @@ nonisolated enum CarvingScorer {
             correlations.append(max(0, SignalMath.pearsonCorrelation(measured, centripetal)))
         }
         guard correlations.count >= 2 else { return nil }
-        return SignalMath.mean(correlations)
+        // Trimmed, like the other per turn aggregates, so one exceptional turn
+        // does not set the run's purity.
+        return SignalMath.trimmedMean(correlations, proportion: 0.1)
     }
 
     /// Consistency of per turn radius (v / yawRate). Lower variation is a
@@ -224,7 +248,10 @@ nonisolated enum CarvingScorer {
     private static func carryForwardSpeed(_ frames: [ScoringFrame]) -> [Double] {
         var out = [Double]()
         out.reserveCapacity(frames.count)
-        var last = 0.0
+        // Seed with the first real fix rather than 0. Seeding at zero made every
+        // frame before the first fix claim the skier was stationary, which zeroed
+        // the centripetal estimate and destroyed carve purity for early turns.
+        var last = frames.first(where: { $0.gpsSpeed != nil })?.gpsSpeed ?? 0
         for f in frames {
             if let s = f.gpsSpeed { last = s }
             out.append(last)
@@ -232,10 +259,32 @@ nonisolated enum CarvingScorer {
         return out
     }
 
-    private static func turnSpan(_ turns: [Turn], gridCount: Int) -> (Int, Int) {
-        let start = max(0, turns.first?.startIndex ?? 0)
-        let end = min(gridCount, turns.last?.endIndex ?? gridCount)
-        return (start, max(start, end))
+    /// Evaluates a metric on each turn independently and combines the results
+    /// with a trimmed mean.
+    ///
+    /// Per turn is what the design specifies, and it matters for two reasons:
+    /// duration-normalised metrics like LDLJ-A are only duration independent
+    /// within a single sub movement, and trimming stops one exceptional turn
+    /// from setting the score for the run.
+    ///
+    /// Returns nil when no turn was long enough to evaluate.
+    private static func perTurnTrimmedMean(
+        _ turns: [Turn],
+        gridCount: Int,
+        minSamples: Int = 8,
+        _ metric: (Int, Int) -> Double
+    ) -> Double? {
+        var values: [Double] = []
+        for turn in turns {
+            let s = max(0, turn.startIndex)
+            let e = min(turn.endIndex, gridCount)
+            guard e - s >= minSamples else { continue }
+            let value = metric(s, e)
+            guard value.isFinite else { continue }
+            values.append(value)
+        }
+        guard !values.isEmpty else { return nil }
+        return SignalMath.trimmedMean(values, proportion: 0.1)
     }
 
     private static func slice(_ xs: [Double], _ span: (Int, Int)) -> [Double] {

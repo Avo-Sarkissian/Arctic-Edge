@@ -150,3 +150,59 @@ Built with test driven development using Swift Testing. New engine lives in `Arc
 - Never promise per ski metrics (edge similarity, outside ski pressure). They require a sensor per boot.
 - Label the absolute score provisional until recalibrated from real runs.
 - Show "not enough data" rather than a number when the minimum data gate is not met.
+
+## Implementation notes (2026-08-01)
+
+What changed after the ski-metric audit, and why. The design of record above is
+unchanged; these are corrections where the implementation had drifted from it.
+
+**Per turn aggregation (was: whole run).** SPARC and LDLJ-A are now computed on
+each turn independently and combined with a trimmed mean, as section 3 always
+specified. Computing them once over the concatenated run made both length
+dependent: LDLJ-A's raw value falls by 2*ln(2) for every doubling of duration, so
+against the frozen anchor span a four times longer run of identical technique lost
+roughly 15 percent of the normalized scale purely for being longer. That defeats
+the entire point of freezing the model. `ScoreComparabilityTests` pins the
+property with a 10 turn run against a 40 turn run.
+
+**Sample rate clamp and spectral gate.** The analysis grid is clamped to
+`min(50, medianSampleRate)` instead of always resampling to 50 Hz. Chatter only
+contributes when the run was captured at 40 Hz or above, and the Control pillar
+re-normalizes over whatever remains rather than counting a missing metric as
+zero. Upsampling a throttled run cannot recreate the high frequency content
+chatter measures, so including it made a struggling phone look "quiet" exactly
+when its data was least trustworthy.
+
+**Speed channel seeding.** `carryForwardSpeed` seeds from the first real fix in
+the run rather than from 0. Seeding at zero made every frame before the first fix
+claim the skier was stationary, which zeroed the centripetal estimate and
+destroyed carve purity for the opening turns.
+
+**Trimmed aggregation for purity.** Per turn carve purity is combined with a
+trimmed mean, matching the other per turn aggregates.
+
+**Turn marks are exposed.** `CarvingScore.turns` carries each detected turn's
+start time, duration, and direction. This backs the turn ledger in the UI, which
+draws real measured cadence and left/right balance rather than an evenly spaced
+decoration. Nothing is drawn from data the engine did not measure.
+
+**Scoring happens at finalization.** `RunFinalizer` scores every run when it
+ends. Previously the only caller was the post-run view's `.task`, so a run the
+skier did not open was never scored.
+
+## Calibration path
+
+The anchors in `CarvingScoreModel.v1` are literature derived and the version
+string carries the `-provisional` suffix, which the UI surfaces as a tag beside
+the number. To move them:
+
+1. Ski a day with a range of deliberate technique, from clean carves to
+   deliberate skidding.
+2. Settings, then Export runs for calibration. Each run exports as JSON with its
+   frames, the score the current model produced, and the model version.
+3. Label the runs against an expert rating.
+4. Fit the anchors so the model's output tracks the labels, bump the version, and
+   drop the `-provisional` suffix.
+
+Until step 4, treat the number as useful for comparing your own runs and not as
+an absolute grade.

@@ -13,7 +13,11 @@ import Charts
 
 struct PostRunAnalysisView: View {
     let runID: UUID
+    /// True when this is the run that just ended, so the ring buffer is flushed
+    /// before querying. Opening an old history row must not disturb live capture.
+    var isLiveRun: Bool = true
     @Environment(AppModel.self) private var appModel
+    @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = PostRunViewModel()
     @State private var selectedTimestamp: TimeInterval? = nil
@@ -62,7 +66,8 @@ struct PostRunAnalysisView: View {
             await viewModel.loadData(
                 runID: runID,
                 persistenceService: service,
-                ringBuffer: appModel.ringBuffer
+                ringBuffer: appModel.ringBuffer,
+                isLiveRun: isLiveRun
             )
         }
     }
@@ -72,20 +77,19 @@ struct PostRunAnalysisView: View {
     private var headerSection: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("RUN COMPLETE")
-                    .font(.system(size: 11, weight: .medium))
-                    .tracking(2.5)
-                    .foregroundStyle(Color(red: 0.12, green: 0.56, blue: 1.0))
+                Text(isLiveRun ? "RUN COMPLETE" : "RUN DETAIL")
+                    .arcticLabel(Theme.Palette.arctic)
                 Text("Analysis")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(Theme.Typography.display)
+                    .foregroundStyle(Theme.Palette.textPrimary)
             }
             Spacer()
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 26))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(Theme.Palette.textTertiary)
             }
+            .accessibilityLabel("Close")
         }
     }
 
@@ -99,13 +103,13 @@ struct PostRunAnalysisView: View {
                 spacing: 10
             ) {
                 PostRunStatCard(label: "TOP SPEED",
-                               value: MetricFormatter.speed(viewModel.stats.topSpeed))
+                               value: MetricFormatter.speed(viewModel.stats.topSpeed, units: settings.unitSystem))
                 PostRunStatCard(label: "AVG SPEED",
-                               value: MetricFormatter.speed(viewModel.stats.avgSpeed))
+                               value: MetricFormatter.speed(viewModel.stats.avgSpeed, units: settings.unitSystem))
                 PostRunStatCard(label: "VERTICAL",
-                               value: MetricFormatter.altitudeWithUnit(viewModel.stats.verticalDrop))
+                               value: MetricFormatter.altitudeWithUnit(viewModel.stats.verticalDrop, units: settings.unitSystem))
                 PostRunStatCard(label: "DISTANCE",
-                               value: MetricFormatter.distanceWithUnit(viewModel.stats.distanceMeters))
+                               value: MetricFormatter.distanceWithUnit(viewModel.stats.distanceMeters, units: settings.unitSystem))
                 PostRunStatCard(label: "DURATION",
                                value: MetricFormatter.duration(viewModel.stats.duration))
             }
@@ -121,7 +125,7 @@ struct PostRunAnalysisView: View {
                 PostRunStatCard(label: "RUNS",
                                value: "\(viewModel.sessionAggregates.runCount)")
                 PostRunStatCard(label: "TOTAL VERT",
-                               value: MetricFormatter.altitudeWithUnit(viewModel.sessionAggregates.totalVertical))
+                               value: MetricFormatter.altitudeWithUnit(viewModel.sessionAggregates.totalVertical, units: settings.unitSystem))
                 PostRunStatCard(label: "SKI TIME",
                                value: MetricFormatter.duration(viewModel.sessionAggregates.totalSkiingTime))
             }
@@ -142,7 +146,7 @@ struct PostRunAnalysisView: View {
                 data: viewModel.snapshots.compactMap { snap in
                     snap.filteredVerticalAccel.map { (snap.timestamp, $0) }
                 },
-                color: Color(red: 0.12, green: 0.56, blue: 1.0)
+                color: Theme.Palette.arctic
             )
 
             // G-force
@@ -152,17 +156,18 @@ struct PostRunAnalysisView: View {
                     (snap.timestamp,
                      hypot(snap.userAccelX, hypot(snap.userAccelY, snap.userAccelZ)))
                 },
-                color: Color(red: 0.4, green: 0.9, blue: 0.6)
+                color: Theme.Palette.mint
             )
 
             // GPS speed (only snapshots with a reading)
             chartView(
-                title: "SPEED (KM/H)",
+                title: "SPEED (\(settings.unitSystem.speedSuffix.uppercased()))",
                 data: viewModel.snapshots.compactMap { snap in
-                    guard let s = snap.gpsSpeed else { return nil }
-                    return (snap.timestamp, s * 3.6)
+                    guard let s = snap.gpsSpeed, s >= 0 else { return nil }
+                    let converted = settings.unitSystem == .metric ? s * 3.6 : s * 2.236936
+                    return (snap.timestamp, converted)
                 },
-                color: Color(red: 1.0, green: 0.7, blue: 0.3)
+                color: Theme.Palette.amber
             )
         }
     }
@@ -230,7 +235,7 @@ struct PostRunAnalysisView: View {
                 Text(String(format: "G: %.2fg   LAT: %@",
                             hypot(f.userAccelX, hypot(f.userAccelY, f.userAccelZ)),
                             f.horizontalAccelMagnitude.map { String(format: "%.2fg", $0) } ?? "—"))
-                Text("\(MetricFormatter.speedWithUnit(f.gpsSpeed))")
+                Text("\(MetricFormatter.speedWithUnit(f.gpsSpeed, units: settings.unitSystem))")
             }
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -243,10 +248,7 @@ struct PostRunAnalysisView: View {
     // MARK: - Helpers
 
     private func sectionHeader(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .medium))
-            .tracking(2.5)
-            .foregroundStyle(.white.opacity(0.4))
+        Text(text).arcticLabel()
     }
 
     private func formatSpeed(_ ms: Double) -> String {

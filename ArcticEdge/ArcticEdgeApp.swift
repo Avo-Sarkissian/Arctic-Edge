@@ -211,9 +211,16 @@ final class AppModel {
         persistenceService = service
 
         // Check for orphaned session from previous unclean exit (SESS-05).
+        //
+        // Recovery used to clear the sentinel and print. The RunRecords left open
+        // by the crash were never marked, so they sat in the store forever with no
+        // end timestamp, invisible to history (which filters on endTimestamp) and
+        // never cleaned up. markOrphanedRunRecord and fetchOpenRunIDs existed in
+        // PersistenceService with no callers at all.
         let sentinel = UserDefaults.standard.bool(forKey: kSessionSentinelKey)
         if sentinel {
             await workoutSessionManager.recoverOrphanedSession()
+            await recoverOrphanedRuns(service: service)
         }
 
         setupLifecycleObservers()
@@ -565,6 +572,35 @@ final class AppModel {
         }
     }
 
+    // MARK: - Orphan recovery
+
+    /// Closes out runs left open by a crash or a forced quit.
+    ///
+    /// Each open run is finalized at the wall-clock time of its last captured
+    /// frame (not "now", which would invent hours of skiing), then scored like
+    /// any other run so the day is not silently missing entries. Runs with no
+    /// frames left are marked orphaned and excluded from history.
+    private func recoverOrphanedRuns(service: PersistenceService) async {
+        let openRunIDs = (try? await service.fetchOpenRunIDs()) ?? []
+        guard !openRunIDs.isEmpty else { return }
+
+        let finalizer = RunFinalizer(persistence: service)
+        for runID in openRunIDs {
+            let frames = (try? await service.fetchFrameDataForRun(runID: runID)) ?? []
+            guard let lastFrame = frames.last else {
+                try? await service.markOrphanedRunRecord(runID: runID)
+                continue
+            }
+            let end = UptimeClock().date(forUptime: lastFrame.timestamp)
+            try? await service.finalizeRunRecord(
+                runID: runID, endTimestamp: end,
+                topSpeed: nil, avgSpeed: nil,
+                verticalDrop: nil, distanceMeters: nil, resortName: nil
+            )
+            await finalizer.finalize(runID: runID)
+        }
+    }
+
     // MARK: - Day summary
 
     /// Recomputes today's totals from persisted runs. Called after every run
@@ -637,23 +673,37 @@ private extension ProcessInfo.ThermalState {
 @main
 struct ArcticEdgeApp: App {
     @State private var appModel = AppModel()
+    @State private var settings = AppSettings()
     // MetricKit subscriber retained for the process lifetime. Registers with
     // MXMetricManager.shared in its init; receives daily payloads on-device.
     private let metricKitSubscriber = MetricKitSubscriber()
 
     var body: some Scene {
         WindowGroup {
-            TabView {
-                Tab("Today", systemImage: "mountain.2.fill") {
-                    TodayTabView()
-                }
-                Tab("History", systemImage: "clock.fill") {
-                    RunHistoryView()
+            Group {
+                if settings.hasCompletedOnboarding {
+                    TabView {
+                        Tab("Today", systemImage: "mountain.2.fill") {
+                            TodayTabView()
+                        }
+                        Tab("History", systemImage: "clock.fill") {
+                            RunHistoryView()
+                        }
+                        Tab("Settings", systemImage: "gearshape.fill") {
+                            SettingsView()
+                        }
+                    }
+                } else {
+                    // Explain the permissions before iOS asks for them, so the
+                    // first Start Day is not three prompts with no context.
+                    OnboardingView()
                 }
             }
-            .tint(Color(red: 0.12, green: 0.56, blue: 1.0))
+            .tint(Theme.Palette.arctic)
+            .preferredColorScheme(.dark)
             .modelContainer(appModel.container)
             .environment(appModel)
+            .environment(settings)
             .task {
                 await appModel.setupPipelineAsync()
             }

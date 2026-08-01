@@ -61,8 +61,15 @@ nonisolated struct CarvingScoreModel: Sendable {
     let minGPSCoverage: Double      // below this, carving intensity pillar drops out
 
     // Analysis grid and filtering.
+    /// Target grid rate. Clamped to the run's achievable rate at analysis time:
+    /// upsampling a throttled run cannot recreate content that was never captured.
     let analysisSampleRate: Double
     let chatterCutoffHz: Double     // high pass knee for chatter energy
+    /// Spectral metrics (chatter) only contribute from runs captured at or above
+    /// this rate. Below it, linear interpolation smooths away the high frequency
+    /// content chatter measures, so a throttled run would score misleadingly
+    /// "quiet" exactly when the phone was under stress.
+    let minSpectralSampleRate: Double
 
     let anchors: [SubMetricID: ScoreAnchor]
 
@@ -79,6 +86,7 @@ nonisolated struct CarvingScoreModel: Sendable {
         minGPSCoverage: 0.3,
         analysisSampleRate: 50.0,
         chatterCutoffHz: 5.0,
+        minSpectralSampleRate: 40.0,
         anchors: [
             // SPARC is negative; less negative (closer to 0) is smoother.
             .edgeTransitionSmoothness: ScoreAnchor(bad: -9.0, good: -1.5),

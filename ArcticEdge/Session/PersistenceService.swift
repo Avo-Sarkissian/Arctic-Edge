@@ -258,27 +258,36 @@ actor PersistenceService {
     @discardableResult
     func pruneFrames(olderThan cutoff: Date, keepingRunIDs liveRunIDs: Set<UUID>) throws -> Int {
         modelContext.autosaveEnabled = false
+        let before = try modelContext.fetchCount(FetchDescriptor<FrameRecord>())
 
-        // Every runID that still has a RunRecord. Frames outside this set are orphans.
-        let runDescriptor = FetchDescriptor<RunRecord>()
-        var knownRunIDs = Set(try modelContext.fetch(runDescriptor).map { $0.runID })
+        // Predicate-driven batch deletes. Fetching every FrameRecord to filter in
+        // Swift would pull millions of rows into memory: a single six hour day is
+        // roughly two million.
+
+        // Expired. A frame with no wallClock predates the field, so it is left
+        // alone here rather than deleted on an unknown age.
+        try modelContext.delete(
+            model: FrameRecord.self,
+            where: #Predicate { frame in
+                if let stamped = frame.wallClock { stamped < cutoff } else { false }
+            }
+        )
+
+        // Orphaned: belongs to no RunRecord. There are at most a few thousand
+        // runs, so collecting their ids is cheap.
+        var knownRunIDs = Set(try modelContext.fetch(FetchDescriptor<RunRecord>()).map { $0.runID })
         knownRunIDs.formUnion(liveRunIDs)
+        let knownList = Array(knownRunIDs)
+        try modelContext.delete(
+            model: FrameRecord.self,
+            where: #Predicate { frame in
+                !knownList.contains(frame.runID)
+            }
+        )
 
-        let frameDescriptor = FetchDescriptor<FrameRecord>()
-        let frames = try modelContext.fetch(frameDescriptor)
-
-        var deleted = 0
-        for frame in frames {
-            let isOrphan = !knownRunIDs.contains(frame.runID)
-            // A frame with no wall clock predates the field; fall back to keeping it
-            // unless it is orphaned, so pre-migration data is not deleted by surprise.
-            let isExpired = (frame.wallClock.map { $0 < cutoff }) ?? false
-            guard isOrphan || isExpired else { continue }
-            modelContext.delete(frame)
-            deleted += 1
-        }
-        if deleted > 0 { try modelContext.save() }
-        return deleted
+        try modelContext.save()
+        let after = try modelContext.fetchCount(FetchDescriptor<FrameRecord>())
+        return max(0, before - after)
     }
 
     /// Total FrameRecord count. Used by diagnostics and the storage readout.
