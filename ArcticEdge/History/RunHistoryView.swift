@@ -2,9 +2,12 @@
 // ArcticEdge
 //
 // Run history browser: paginated list of all runs grouped by day.
-// Day headers: date + resort name + run count + total vertical.
-// Run rows: run number (within day), top speed, vertical, duration.
-// Text only — no sparklines, no bars (Arctic Dark high signal-to-noise).
+// Day headers: date, resort name, run count, day average carving score.
+// Run rows: run number (within day), score badge, top speed, vertical, duration.
+// Text only, no sparklines or bars (Arctic Dark high signal-to-noise).
+//
+// The score badge leads each row: it is the metric the app exists to report, and
+// scanning a season by score is the reason to keep history at all.
 //
 // NavigationStack push to PostRunAnalysisView on row tap.
 
@@ -17,16 +20,7 @@ struct RunHistoryView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Arctic Dark background
-                LinearGradient(
-                    stops: [
-                        .init(color: Color(red: 0.051, green: 0.067, blue: 0.090), location: 0),
-                        .init(color: Color(red: 0.024, green: 0.039, blue: 0.059), location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                Theme.Gradients.slate.ignoresSafeArea()
 
                 if viewModel.dayGroups.isEmpty && !viewModel.isLoading {
                     emptyState
@@ -44,10 +38,15 @@ struct RunHistoryView: View {
                                     .listRowBackground(Color.white.opacity(0.04))
                                     .listRowSeparatorTint(.white.opacity(0.08))
                                     .onAppear {
-                                        // Pagination trigger on last visible row
-                                        if run.id == viewModel.dayGroups.last?.runs.last?.id {
-                                            Task {
-                                                guard let service = appModel.persistenceService else { return }
+                                        Task {
+                                            guard let service = appModel.persistenceService else { return }
+                                            // Resolve the resort name for rows as they
+                                            // scroll into view. Cached after the first hit.
+                                            await viewModel.geocodeIfNeeded(
+                                                runRow: run, persistenceService: service
+                                            )
+                                            // Pagination trigger on last visible row
+                                            if run.id == viewModel.dayGroups.last?.runs.last?.id {
                                                 await viewModel.fetchNextPage(persistenceService: service)
                                             }
                                         }
@@ -84,16 +83,16 @@ struct RunHistoryView: View {
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Text("No runs recorded")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.white.opacity(0.5))
-            Text("Start a day to begin recording runs.")
-                .font(.system(size: 14))
-                .foregroundStyle(.white.opacity(0.3))
+        VStack(spacing: Theme.Spacing.s) {
+            Text("No runs yet")
+                .font(Theme.Typography.title)
+                .foregroundStyle(Theme.Palette.textSecondary)
+            Text("Start a day and ArcticEdge will record and score each run automatically.")
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.Palette.textTertiary)
                 .multilineTextAlignment(.center)
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, Theme.Spacing.xl)
     }
 }
 
@@ -109,14 +108,26 @@ private struct DayHeaderView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
                 Text(group.resortName.uppercased())
-                    .font(.system(size: 10, weight: .medium))
-                    .tracking(1.5)
-                    .foregroundStyle(Color(red: 0.12, green: 0.56, blue: 1.0).opacity(0.8))
+                    .font(Theme.Typography.label)
+                    .tracking(Theme.Tracking.microLabel)
+                    .foregroundStyle(Theme.Palette.arctic.opacity(0.8))
             }
             Spacer()
-            Text("\(group.runCount) runs  \(String(format: "%.0f", group.totalVertical))m vert")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.4))
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text("AVG")
+                        .font(Theme.Typography.microLabel)
+                        .tracking(Theme.Tracking.microLabel)
+                        .foregroundStyle(Theme.Palette.textFaint)
+                    Text(MetricFormatter.score(group.averageScore))
+                        .font(Theme.Typography.metricSmall)
+                        .monospacedDigit()
+                        .foregroundStyle(ScoreBand.color(for: group.averageScore))
+                }
+                Text("\(group.runCount) \(group.runCount == 1 ? "run" : "runs") · \(MetricFormatter.altitudeWithUnit(group.totalVertical)) vert")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -129,32 +140,18 @@ private struct RunRowView: View {
     let runNumber: Int
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Run number
+        HStack(spacing: Theme.Spacing.s) {
+            CarvingScoreBadge(score: run.carvingScore)
+
             Text("Run \(runNumber)")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
-                .frame(width: 60, alignment: .leading)
+                .font(Theme.Typography.metricSmall)
+                .foregroundStyle(Theme.Palette.textPrimary.opacity(0.85))
 
-            Spacer()
+            Spacer(minLength: 0)
 
-            // Top speed
-            metricColumn(
-                value: run.topSpeed.map { String(format: "%.0f", $0 * 3.6) } ?? "--",
-                label: "km/h"
-            )
-
-            // Vertical
-            metricColumn(
-                value: run.verticalDrop.map { String(format: "%.0f", $0) } ?? "--",
-                label: "m vert"
-            )
-
-            // Duration
-            metricColumn(
-                value: formatDuration(run.duration),
-                label: "time"
-            )
+            metricColumn(value: MetricFormatter.speed(run.topSpeed), label: "km/h")
+            metricColumn(value: MetricFormatter.altitude(run.verticalDrop), label: "m vert")
+            metricColumn(value: MetricFormatter.duration(run.duration), label: "time")
         }
         .padding(.vertical, 6)
     }
@@ -162,19 +159,13 @@ private struct RunRowView: View {
     private func metricColumn(value: String, label: String) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(value)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(Theme.Typography.metricSmall)
+                .foregroundStyle(Theme.Palette.textPrimary)
                 .monospacedDigit()
             Text(label)
-                .font(.system(size: 9, weight: .regular))
-                .foregroundStyle(.white.opacity(0.35))
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.Palette.textFaint)
         }
-        .frame(width: 70, alignment: .trailing)
-    }
-
-    private func formatDuration(_ seconds: TimeInterval) -> String {
-        let m = Int(seconds) / 60
-        let s = Int(seconds) % 60
-        return String(format: "%d:%02d", m, s)
+        .frame(width: 58, alignment: .trailing)
     }
 }

@@ -32,13 +32,32 @@ nonisolated struct DataQuality: Sendable, Equatable {
     let sufficientData: Bool
 }
 
+/// One detected turn, reduced to what a display needs.
+///
+/// Exposed so the UI can render the run's actual measured rhythm rather than an
+/// evenly spaced decoration. Spacing between marks is real cadence and the
+/// left/right split is real alternation; both are what the rhythm and symmetry
+/// pillar scores are computed from.
+nonisolated struct TurnMark: Sendable, Equatable, Identifiable {
+    let id: Int              // ordinal position in the run
+    let startTime: TimeInterval
+    let duration: TimeInterval
+    let isLeft: Bool
+}
+
 nonisolated struct CarvingScore: Sendable, Equatable {
     let overall: Double?              // 0...100, nil if insufficient data
     let pillars: PillarScores
     let subMetrics: [SubMetricValue]
     let turnCount: Int
+    let turns: [TurnMark]
     let dataQuality: DataQuality
     let modelVersion: String
+
+    /// True when the model version carries the provisional suffix, meaning the
+    /// anchors have not yet been recalibrated against labelled field data. The
+    /// UI must say so next to the number.
+    var isProvisional: Bool { modelVersion.hasSuffix("-provisional") }
 
     /// The score for a run that could not be evaluated.
     static func insufficient(version: String, quality: DataQuality) -> CarvingScore {
@@ -47,6 +66,7 @@ nonisolated struct CarvingScore: Sendable, Equatable {
             pillars: PillarScores(controlSmoothness: nil, rhythmSymmetry: nil, carvingIntensity: nil),
             subMetrics: [],
             turnCount: quality.turnCount,
+            turns: [],
             dataQuality: quality,
             modelVersion: version
         )

@@ -56,17 +56,17 @@ struct ContentView: View {
                 // Capture health: authorization refusals, GPS loss, and missing
                 // background session are stated plainly rather than left silent.
                 if !appModel.captureWarnings.isEmpty {
-                    VStack(spacing: 6) {
+                    VStack(spacing: Theme.Spacing.xs) {
                         ForEach(appModel.captureWarnings, id: \.self) { warning in
-                            noticeRow(warning, tint: Color(red: 1.0, green: 0.75, blue: 0.0))
+                            noticeRow(warning, tint: Theme.Palette.caution)
                         }
                     }
-                    .padding(.top, 16)
+                    .padding(.top, Theme.Spacing.m)
                 }
 
                 if let captureError = appModel.lastCaptureError {
-                    noticeRow(captureError, tint: Color(red: 1.0, green: 0.28, blue: 0.28))
-                        .padding(.top, 10)
+                    noticeRow(captureError, tint: Theme.Palette.alarm)
+                        .padding(.top, Theme.Spacing.s)
                 }
 
                 // Error label
@@ -97,15 +97,7 @@ struct ContentView: View {
     // MARK: - Background layers
 
     private var backgroundLayer: some View {
-        LinearGradient(
-            stops: [
-                .init(color: Color(red: 0.051, green: 0.067, blue: 0.090), location: 0),
-                .init(color: Color(red: 0.024, green: 0.039, blue: 0.059), location: 1)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        Theme.Gradients.slate.ignoresSafeArea()
     }
 
     // Subtle topographic contour lines drawn via Canvas — zero asset dependencies.
@@ -151,7 +143,7 @@ struct ContentView: View {
                     .tracking(28 * 0.15)
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [Color(red: 0.12, green: 0.56, blue: 1.0), .clear],
+                            colors: [Theme.Palette.arctic, .clear],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -176,25 +168,17 @@ struct ContentView: View {
         HStack(spacing: 8) {
             // Colored indicator dot
             Circle()
-                .fill(appModel.isDayActive
-                    ? Color(red: 0.12, green: 0.56, blue: 1.0)
-                    : Color.white.opacity(0.25))
+                .fill(appModel.isDayActive ? Theme.Palette.arctic : Theme.Palette.textFaint)
                 .frame(width: 7, height: 7)
                 .shadow(
-                    color: appModel.isDayActive
-                        ? Color(red: 0.12, green: 0.56, blue: 1.0).opacity(0.8)
-                        : .clear,
+                    color: appModel.isDayActive ? Theme.Palette.arctic.opacity(0.8) : .clear,
                     radius: 4
                 )
 
             Text(appModel.isDayActive ? "Active" : "Ready")
                 .font(.system(size: 13, weight: .medium, design: .default))
                 .tracking(1.5)
-                .foregroundStyle(
-                    appModel.isDayActive
-                        ? Color(red: 0.12, green: 0.56, blue: 1.0)
-                        : Color.white.opacity(0.55)
-                )
+                .foregroundStyle(appModel.isDayActive ? Theme.Palette.arctic : Theme.Palette.textSecondary)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
@@ -203,21 +187,27 @@ struct ContentView: View {
         .overlay(
             Capsule()
                 .strokeBorder(
-                    appModel.isDayActive
-                        ? Color(red: 0.12, green: 0.56, blue: 1.0).opacity(0.35)
-                        : Color.white.opacity(0.08),
-                    lineWidth: 0.5
+                    appModel.isDayActive ? Theme.Palette.arctic.opacity(0.35) : Theme.Palette.hairline,
+                    lineWidth: Theme.hairlineWidth
                 )
         )
     }
 
     // MARK: - Stats row
 
+    // Live day summary. These three cards rendered hardcoded dashes: the label
+    // "RUNS" over a literal em dash, forever. They now read the day's real
+    // totals, with the average carving score leading because that is the number
+    // the app is for.
     private var statsRow: some View {
         HStack(spacing: 12) {
-            StatCard(label: "RUNS", value: "—")
-            StatCard(label: "DISTANCE", value: "—")
-            StatCard(label: "ELAPSED", value: elapsedTime)
+            StatCard(
+                label: "AVG SCORE",
+                value: MetricFormatter.score(appModel.daySummary.averageScore),
+                tint: ScoreBand.color(for: appModel.daySummary.averageScore)
+            )
+            StatCard(label: "RUNS", value: "\(appModel.daySummary.runCount)")
+            StatCard(label: "VERT", value: MetricFormatter.altitudeWithUnit(appModel.daySummary.totalVertical))
         }
     }
 
@@ -244,17 +234,14 @@ struct ContentView: View {
                     Text("END DAY")
                         .font(.system(size: 15, weight: .semibold, design: .default))
                         .tracking(3)
-                        .foregroundStyle(Color(red: 1.0, green: 0.28, blue: 0.28))
+                        .foregroundStyle(Theme.Palette.alarm)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
                         .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.action, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(
-                                    Color(red: 1.0, green: 0.28, blue: 0.28).opacity(0.6),
-                                    lineWidth: 1
-                                )
+                            RoundedRectangle(cornerRadius: Theme.Radius.action, style: .continuous)
+                                .strokeBorder(Theme.Palette.alarm.opacity(0.6), lineWidth: 1)
                         )
                 } else {
                     // Start Day — vibrant blue gradient fill
@@ -264,21 +251,9 @@ struct ContentView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
-                        .background(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.118, green: 0.565, blue: 1.0),
-                                    Color(red: 0.0, green: 0.40, blue: 0.80)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .background(Theme.Gradients.primaryAction)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .shadow(
-                            color: Color(red: 0.118, green: 0.565, blue: 1.0).opacity(0.35),
-                            radius: 16, x: 0, y: 8
-                        )
+                        .shadow(color: Theme.Palette.arctic.opacity(0.35), radius: 16, x: 0, y: 8)
                 }
             }
         }
@@ -310,10 +285,6 @@ struct ContentView: View {
 
     // MARK: - Helpers
 
-    // Placeholder elapsed time — AppModel does not yet track a start timestamp,
-    // so display a dash until that property is wired in a future plan.
-    private var elapsedTime: String { "—" }
-
     private func syncWordmarkAnimation() {
         if appModel.isDayActive {
             withAnimation(
@@ -337,26 +308,25 @@ struct ContentView: View {
 private struct StatCard: View {
     let label: String
     let value: String
+    var tint: Color = Theme.Palette.textPrimary
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: Theme.Spacing.xs) {
             Text(value)
-                .font(.system(size: 20, weight: .semibold, design: .default))
-                .foregroundStyle(.white)
+                .font(Theme.Typography.metric)
+                .foregroundStyle(tint)
                 .monospacedDigit()
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
             Text(label)
-                .font(.system(size: 9, weight: .medium, design: .default))
+                .font(.system(size: 9, weight: .medium))
                 .tracking(2)
-                .foregroundStyle(Color.white.opacity(0.4))
+                .foregroundStyle(Theme.Palette.textTertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.5)
-        )
+        .padding(.vertical, Theme.Spacing.m)
+        .arcticCard(radius: 12)
+        .accessibilityElement(children: .combine)
     }
 }
 

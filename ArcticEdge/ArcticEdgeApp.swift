@@ -27,6 +27,28 @@ nonisolated enum PowerSaverMode: Equatable, Sendable {
     case saving   // 60Hz IMU, duty-cycled GPS (≤1 update/5s)
 }
 
+// MARK: - DaySummary
+
+/// Today's totals. Every measurement is Optional so an unmeasured value shows a
+/// dash instead of a zero that looks like a reading.
+nonisolated struct DaySummary: Sendable, Equatable {
+    var runCount: Int = 0
+    var averageScore: Double?
+    var totalVertical: Double?
+
+    /// Builds the summary from today's completed runs.
+    static func build(from runs: [RunSnapshot], calendar: Calendar = .current, now: Date = Date()) -> DaySummary {
+        let today = runs.filter { calendar.isDate($0.startTimestamp, inSameDayAs: now) }
+        let scores = today.compactMap { $0.carvingScore }
+        let verticals = today.compactMap { $0.verticalDrop }
+        return DaySummary(
+            runCount: today.count,
+            averageScore: scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count),
+            totalVertical: verticals.isEmpty ? nil : verticals.reduce(0, +)
+        )
+    }
+}
+
 // MARK: - AppModelError
 
 enum AppModelError: Error, LocalizedError {
@@ -107,6 +129,10 @@ final class AppModel {
     private(set) var captureWarnings: [String] = []
     private(set) var lastCaptureError: String? = nil
     private(set) var gpsHealth: GPSHealth = .idle
+
+    /// Rolling totals for today, refreshed as runs finalize. Backs the Today tab
+    /// summary cards, which previously rendered hardcoded em dashes.
+    private(set) var daySummary: DaySummary = DaySummary()
 
     // Set by HUD polling when currentRunID transitions non-nil -> nil (run ended).
     // Observed by TodayTabView to auto-present PostRunAnalysisView.
@@ -192,6 +218,7 @@ final class AppModel {
 
         setupLifecycleObservers()
         setupBatteryMonitoring()
+        await refreshDaySummary()
     }
 
     // SESS-04: Register for app lifecycle notifications so the ring buffer is flushed
@@ -371,11 +398,12 @@ final class AppModel {
         }
         let finalizer = RunFinalizer(persistence: service)
         let rb = ringBuffer
-        await activityClassifier.setRunFinalizedSink { runID in
+        await activityClassifier.setRunFinalizedSink { [weak self] runID in
             // Flush first: the last couple of seconds of the run are still in the
             // ring buffer, and scoring a run without its final turns understates it.
             try? await service.emergencyFlush(ringBuffer: rb)
             await finalizer.finalize(runID: runID)
+            await self?.refreshDaySummary()
         }
 
         // 4. Arm ActivityClassifier — it owns all run boundaries from here.
@@ -400,6 +428,7 @@ final class AppModel {
         // 7. Start HUD polling loop.
         startHUDPolling()
         refreshCaptureWarnings()
+        await refreshDaySummary()
     }
 
     // End Day: finalizes any open RunRecord, stops all capture.
@@ -534,6 +563,17 @@ final class AppModel {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    // MARK: - Day summary
+
+    /// Recomputes today's totals from persisted runs. Called after every run
+    /// finalizes and when a day starts, so the Today cards stay current without
+    /// polling.
+    func refreshDaySummary() async {
+        guard let service = persistenceService else { return }
+        let runs = (try? await service.fetchCompletedRunSnapshots()) ?? []
+        daySummary = DaySummary.build(from: runs)
     }
 
     // MARK: - Run coordinate

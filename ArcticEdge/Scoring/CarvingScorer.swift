@@ -116,9 +116,22 @@ nonisolated enum CarvingScorer {
             ),
             subMetrics: subMetrics,
             turnCount: turns.count,
+            turns: turnMarks(turns, runStart: frames.first?.timestamp ?? 0),
             dataQuality: quality,
             modelVersion: model.version
         )
+    }
+
+    /// Projects detected turns into display marks, timed from the run's start.
+    private static func turnMarks(_ turns: [Turn], runStart: TimeInterval) -> [TurnMark] {
+        turns.enumerated().map { index, turn in
+            TurnMark(
+                id: index,
+                startTime: turn.startTime - runStart,
+                duration: turn.duration,
+                isLeft: turn.direction == .left
+            )
+        }
     }
 
     // MARK: Sub metric helpers

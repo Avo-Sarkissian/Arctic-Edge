@@ -20,16 +20,7 @@ struct PostRunAnalysisView: View {
 
     var body: some View {
         ZStack {
-            // Arctic Dark background
-            LinearGradient(
-                stops: [
-                    .init(color: Color(red: 0.051, green: 0.067, blue: 0.090), location: 0),
-                    .init(color: Color(red: 0.024, green: 0.039, blue: 0.059), location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            Theme.Gradients.slate.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -42,6 +33,13 @@ struct PostRunAnalysisView: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 60)
                     } else {
+                        // The carving score leads: it is the reason this screen
+                        // exists, and the stats below are supporting context.
+                        if let score = viewModel.carvingScore {
+                            CarvingScoreView(score: score)
+                            Divider().overlay(Theme.Palette.hairline)
+                        }
+
                         // Per-run stats
                         statsSection
 
