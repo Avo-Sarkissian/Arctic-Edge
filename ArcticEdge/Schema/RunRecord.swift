@@ -32,6 +32,11 @@ final class RunRecord {
     var carvingScore: Double?
     var carvingScoreVersion: String?
 
+    // Coordinate the run started at, captured from the first trustworthy GPS fix.
+    // Reverse geocoding (HIST-02) needs a location to resolve a resort name from.
+    var latitude: Double?
+    var longitude: Double?
+
     init(runID: UUID, startTimestamp: Date) {
         self.runID = runID
         self.startTimestamp = startTimestamp

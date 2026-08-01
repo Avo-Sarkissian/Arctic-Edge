@@ -8,7 +8,9 @@
 
 import Foundation
 
-struct FrameSnapshot: Sendable {
+// nonisolated so members stay usable off the main actor: SWIFT_DEFAULT_ACTOR_ISOLATION
+// is MainActor, which would otherwise isolate the computed projections below.
+nonisolated struct FrameSnapshot: Sendable {
     let timestamp: TimeInterval
     let runID: UUID
     let pitch: Double
@@ -28,6 +30,11 @@ struct FrameSnapshot: Sendable {
     let rotationRateZ: Double
     let filteredAccelZ: Double
     let gpsSpeed: Double?
+    // Accuracy of the fix that gpsSpeed came from, so stats can reject bad samples.
+    let gpsHorizontalAccuracy: Double?
+    let gpsSpeedAccuracy: Double?
+    // Barometric relative altitude: the vertical drop source.
+    let relativeAltitude: Double?
 
     nonisolated init(from record: FrameRecord) {
         self.timestamp = record.timestamp
@@ -46,5 +53,19 @@ struct FrameSnapshot: Sendable {
         self.rotationRateZ = record.rotationRateZ
         self.filteredAccelZ = record.filteredAccelZ
         self.gpsSpeed = record.gpsSpeed
+        self.gpsHorizontalAccuracy = record.gpsHorizontalAccuracy
+        self.gpsSpeedAccuracy = record.gpsSpeedAccuracy
+        self.relativeAltitude = record.relativeAltitude
+    }
+
+    /// Projection used by the statistics calculator.
+    var statsFrame: StatsFrame {
+        StatsFrame(
+            timestamp: timestamp,
+            gpsSpeed: gpsSpeed,
+            gpsHorizontalAccuracy: gpsHorizontalAccuracy,
+            gpsSpeedAccuracy: gpsSpeedAccuracy,
+            relativeAltitude: relativeAltitude
+        )
     }
 }

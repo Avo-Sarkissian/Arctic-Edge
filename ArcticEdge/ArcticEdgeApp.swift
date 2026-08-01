@@ -84,6 +84,7 @@ final class AppModel {
     let activityManager: ActivityManager
     let activityClassifier: ActivityClassifier
     let locationAuthorization: LocationAuthorization
+    let altimeterManager: AltimeterManager
 
     // PersistenceService is initialized asynchronously via setupPipelineAsync().
     // It is stored as an optional because @ModelActor init is async.
@@ -163,6 +164,7 @@ final class AppModel {
         self.gpsManager = GPSManager()
         self.activityManager = ActivityManager()
         self.activityClassifier = ActivityClassifier()
+        self.altimeterManager = AltimeterManager()
         // LocationAuthorization owns a CLLocationManager, which must be created
         // on the main thread. AppModel is @MainActor apart from this init, and
         // the App struct constructs it during main-actor scene setup.
@@ -339,10 +341,11 @@ final class AppModel {
             recordCaptureError(error, context: "workout session")
         }
 
-        // 2. Start GPS and Activity signal sources.
+        // 2. Start GPS, barometer, and Activity signal sources.
         if !locationAuthorization.state.isBlocked {
             await gpsManager.start()
         }
+        await altimeterManager.start()
         await activityManager.start()
 
         // 3. Get streams for classifier.
@@ -352,6 +355,27 @@ final class AppModel {
 
         guard let service = persistenceService else {
             throw AppModelError.persistenceServiceNotReady
+        }
+
+        // 3b. Prune expired and orphaned frames before adding a day's worth more.
+        //     Raw frames land at 100 Hz with no natural bound.
+        await pruneExpiredFrames(service: service)
+
+        // 3c. Install run lifecycle sinks. The classifier owns run boundaries, so
+        //     it pushes them here the instant they happen: retagging live capture
+        //     and triggering the score/stats pass for every run, not just the ones
+        //     whose post-run sheet the skier happened to open.
+        let mm = motionManager
+        await activityClassifier.setRunIDSink { runID in
+            await mm.setActiveRunID(runID)
+        }
+        let finalizer = RunFinalizer(persistence: service)
+        let rb = ringBuffer
+        await activityClassifier.setRunFinalizedSink { runID in
+            // Flush first: the last couple of seconds of the run are still in the
+            // ring buffer, and scoring a run without its final turns understates it.
+            try? await service.emergencyFlush(ringBuffer: rb)
+            await finalizer.finalize(runID: runID)
         }
 
         // 4. Arm ActivityClassifier — it owns all run boundaries from here.
@@ -389,8 +413,10 @@ final class AppModel {
         await activityClassifier.endDay()
         await broadcaster.stop()
         await gpsManager.stop()
+        await altimeterManager.stop()
         await activityManager.stop()
         await workoutSessionManager.end()
+        coordinateRecordedForRunID = nil
 
         if let service = persistenceService {
             let rb = ringBuffer
@@ -485,19 +511,69 @@ final class AppModel {
     private func startPeriodicFlush(runID: UUID) {
         guard let service = persistenceService else { return }
         let rb = ringBuffer
+        let classifier = activityClassifier
+        let altimeter = altimeterManager
         periodicFlushTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 if await rb.count >= 200 {
                     let frames = await rb.drain()
-                    let gpsSpeed = self.lastGPSSpeed >= 0 ? self.lastGPSSpeed : nil
-                    // Errors are reported rather than dropped: a failed save is
-                    // permanent data loss and the skier deserves to know.
-                    do { try await service.flushWithGPS(frames: frames, gpsSpeed: gpsSpeed) }
-                    catch { self.recordCaptureError(error, context: "periodic flush") }
+                    // Carry the fix's accuracy, not just its speed, so per-run
+                    // statistics can reject the bad fixes that used to inflate
+                    // top speed. Altitude rides along as the vertical source.
+                    let reading = await classifier.latestGPS
+                    let fix = reading.map { GPSFix(reading: $0) }
+                    let altitude = await altimeter.latestAltitude
+                    do {
+                        try await service.flushWithGPS(frames: frames, fix: fix, altitude: altitude)
+                    } catch {
+                        self.recordCaptureError(error, context: "periodic flush")
+                    }
                 }
+                await self.captureRunCoordinateIfNeeded(service: service)
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    // MARK: - Run coordinate
+
+    // Records where a run started, once per run, from the first trustworthy fix.
+    // History needs a coordinate to reverse geocode a resort name from; without
+    // one every row read "Mountain Resort" regardless of where the skier was.
+    private var coordinateRecordedForRunID: UUID?
+
+    private func captureRunCoordinateIfNeeded(service: PersistenceService) async {
+        let runID = await activityClassifier.currentRunID
+        guard let runID, runID != coordinateRecordedForRunID else { return }
+        guard let reading = await activityClassifier.latestGPS,
+              reading.hasCoordinate,
+              reading.horizontalAccuracy >= 0, reading.horizontalAccuracy <= 100 else { return }
+        coordinateRecordedForRunID = runID
+        try? await service.updateRunCoordinate(
+            runID: runID,
+            latitude: reading.latitude,
+            longitude: reading.longitude
+        )
+    }
+
+    // MARK: - Retention
+
+    /// Frame retention window. Runs, their stats, and their carving scores are
+    /// kept forever; only the raw 100 Hz stream behind them expires. A single six
+    /// hour day is roughly two million frame rows, so an unbounded store fills the
+    /// device within a season.
+    static let frameRetentionDays = 30
+
+    private func pruneExpiredFrames(service: PersistenceService) async {
+        let cutoff = Calendar.current.date(
+            byAdding: .day, value: -Self.frameRetentionDays, to: Date()
+        ) ?? Date.distantPast
+        do {
+            _ = try await service.pruneFrames(olderThan: cutoff, keepingRunIDs: [])
+        } catch {
+            // Pruning is housekeeping: a failure must not block the day starting.
+            recordCaptureError(error, context: "frame cleanup")
         }
     }
 }

@@ -18,17 +18,11 @@ import simd
 
 // MARK: - Value types (Sendable for actor-boundary crossings)
 
-struct RunStats: Sendable {
-    var topSpeed: Double = 0         // m/s
-    var avgSpeed: Double = 0         // m/s
-    var verticalDrop: Double = 0     // meters (estimated: speed * sin(pitch) * dt)
-    var distanceMeters: Double = 0   // meters
-    var duration: TimeInterval = 0   // seconds
-}
+// RunStats now lives in RunStatsCalculator.swift, where it is computed.
 
 struct SessionAggregates: Sendable {
     var runCount: Int = 0
-    var totalVertical: Double = 0           // meters (sum of verticalDrop across all runs)
+    var totalVertical: Double? = nil        // meters; nil when no run measured vertical
     var totalSkiingTime: TimeInterval = 0   // seconds across completed runs
 }
 
@@ -45,71 +39,88 @@ final class PostRunViewModel {
     private(set) var isLoading: Bool = false
     private(set) var selectedTimestamp: TimeInterval? = nil
 
-    // MARK: - FrameData (test-injectable Sendable mirror)
-    //
-    // Mirrors FrameSnapshot numeric fields. Tests use [FrameData] directly;
-    // production path maps FrameSnapshot -> FrameData for stats computation.
-    // This avoids needing a SwiftData ModelContainer in unit tests.
-    struct FrameData: Sendable {
-        var timestamp: TimeInterval
-        var pitch: Double
-        var gpsSpeed: Double?
-        var filteredAccelZ: Double
-        var userAccelX: Double
-        var userAccelY: Double
-        var userAccelZ: Double
-    }
-
     // MARK: - Data loading
 
-    // Primary entry: called when post-run sheet auto-presents.
-    // emergencyFlush must complete before any fetch to avoid truncated charts.
+    // Primary entry: called when the post-run sheet presents.
+    //
+    // This view is now a reader. Stats and the carving score are computed and
+    // persisted at run finalization by RunFinalizer, so opening the sheet no
+    // longer decides whether a run gets scored. The view falls back to computing
+    // in-memory only when the persisted values are missing, which covers runs
+    // recorded before finalization did this work.
     func loadData(
         runID: UUID,
         persistenceService: PersistenceService,
-        ringBuffer: RingBuffer
+        ringBuffer: RingBuffer,
+        isLiveRun: Bool = true
     ) async {
         isLoading = true
         defer { isLoading = false }
 
-        // RACE FIX: flush remaining ring buffer frames before querying
-        try? await persistenceService.emergencyFlush(ringBuffer: ringBuffer)
+        // RACE FIX: flush remaining ring buffer frames before querying, so the
+        // final couple of seconds reach storage. Only meaningful for the run that
+        // just ended: opening an old history row must not disturb live capture.
+        if isLiveRun {
+            try? await persistenceService.emergencyFlush(ringBuffer: ringBuffer)
+        }
 
         // Fetch FrameSnapshots for this run (Sendable — safe across @ModelActor boundary)
         let fetchedSnapshots = (try? await persistenceService.fetchFrameDataForRun(runID: runID)) ?? []
         snapshots = fetchedSnapshots
 
-        // Compute per-run stats from snapshots
-        let frameData = fetchedSnapshots.map {
-            FrameData(
-                timestamp: $0.timestamp,
-                pitch: $0.pitch,
-                gpsSpeed: $0.gpsSpeed,
-                filteredAccelZ: $0.filteredAccelZ,
-                userAccelX: $0.userAccelX,
-                userAccelY: $0.userAccelY,
-                userAccelZ: $0.userAccelZ
-            )
-        }
-        stats = computeStats(from: frameData)
+        let runSnapshot = try? await persistenceService.fetchRunSnapshot(runID: runID)
 
-        // Compute run duration from RunSnapshot (Sendable — safe across @ModelActor boundary)
-        if let runSnap = try? await persistenceService.fetchRunSnapshot(runID: runID),
-           let end = runSnap.endTimestamp {
-            stats.duration = end.timeIntervalSince(runSnap.startTimestamp)
+        // Prefer the values written at finalization.
+        var loaded = RunStats(
+            topSpeed: runSnapshot?.topSpeed,
+            avgSpeed: runSnapshot?.avgSpeed,
+            verticalDrop: runSnapshot?.verticalDrop,
+            distanceMeters: runSnapshot?.distanceMeters,
+            duration: runSnapshot?.duration ?? 0
+        )
+        if loaded.topSpeed == nil && loaded.distanceMeters == nil && !fetchedSnapshots.isEmpty {
+            let computed = RunStatsCalculator.computeStats(from: fetchedSnapshots.map(\.statsFrame))
+            loaded.topSpeed = computed.topSpeed
+            loaded.avgSpeed = computed.avgSpeed
+            loaded.verticalDrop = computed.verticalDrop
+            loaded.distanceMeters = computed.distanceMeters
         }
+        stats = loaded
 
-        // Compute the carving score from the per-run frames and persist it.
-        // The engine (DFTs etc.) runs off the main actor.
-        let score = await computeCarvingScore(from: fetchedSnapshots)
+        // Carving score: recompute only when the run has no persisted score, or
+        // its score came from an older model version. The engine does FFT-scale
+        // work, so re-running it on every sheet open was pure waste.
+        let score = await resolveCarvingScore(
+            runID: runID,
+            snapshot: runSnapshot,
+            frames: fetchedSnapshots,
+            persistenceService: persistenceService
+        )
         carvingScore = score
-        if let overall = score.overall {
-            try? await persistenceService.updateCarvingScore(runID: runID, score: overall, version: score.modelVersion)
-        }
 
         // Compute session aggregates (all completed runs)
         let completedRuns = (try? await persistenceService.fetchCompletedRunSnapshots()) ?? []
         updateSessionAggregates(from: completedRuns)
+    }
+
+    private func resolveCarvingScore(
+        runID: UUID,
+        snapshot: RunSnapshot?,
+        frames: [FrameSnapshot],
+        persistenceService: PersistenceService
+    ) async -> CarvingScore? {
+        guard !frames.isEmpty else { return nil }
+        let score = await computeCarvingScore(from: frames)
+        // Persist when finalization did not, or when the stored score predates
+        // the current model version.
+        let storedIsCurrent = snapshot?.carvingScore != nil
+            && snapshot?.carvingScoreVersion == score.modelVersion
+        if !storedIsCurrent, let overall = score.overall {
+            try? await persistenceService.updateCarvingScore(
+                runID: runID, score: overall, version: score.modelVersion
+            )
+        }
+        return score
     }
 
     // MARK: - Carving score
@@ -130,32 +141,10 @@ final class PostRunViewModel {
         return await Task.detached { CarvingScorer.score(frames: frames) }.value
     }
 
-    // Test-injectable variant: accepts pre-built FrameData directly.
+    // Test-injectable variant: accepts pre-built StatsFrames directly.
     // Used by PostRunViewModelTests to avoid needing a real SwiftData PersistenceService.
-    func loadDataFromFrameData(_ data: [FrameData]) {
-        stats = computeStats(from: data)
-    }
-
-    // MARK: - Stats computation (FrameData overload — used by tests and internally)
-
-    func computeStats(from data: [FrameData]) -> RunStats {
-        let speeds = data.compactMap { $0.gpsSpeed }.filter { $0 > 0 }
-        var result = RunStats()
-        result.topSpeed = speeds.max() ?? 0
-        result.avgSpeed = speeds.isEmpty ? 0 : speeds.reduce(0, +) / Double(speeds.count)
-
-        // Vertical drop and distance: integrate over consecutive frame pairs.
-        // verticalDrop is estimated: speed * sin(pitch) * dt.
-        // pitch is phone tilt (not slope angle) — see Phase 4 calibration concern.
-        for (a, b) in zip(data, data.dropFirst()) {
-            let dt = b.timestamp - a.timestamp
-            guard dt > 0 else { continue }
-            let speed = a.gpsSpeed ?? 0
-            result.verticalDrop += abs(speed * sin(a.pitch) * dt)
-            result.distanceMeters += speed * dt
-        }
-
-        return result
+    func loadDataFromFrameData(_ data: [StatsFrame]) {
+        stats = RunStatsCalculator.computeStats(from: data)
     }
 
     // MARK: - Session aggregates
@@ -163,11 +152,11 @@ final class PostRunViewModel {
     private func updateSessionAggregates(from runs: [RunSnapshot]) {
         var agg = SessionAggregates()
         agg.runCount = runs.count
-        agg.totalVertical = runs.compactMap { $0.verticalDrop }.reduce(0, +)
-        agg.totalSkiingTime = runs.compactMap { run -> TimeInterval? in
-            guard let end = run.endTimestamp else { return nil }
-            return end.timeIntervalSince(run.startTimestamp)
-        }.reduce(0, +)
+        // nil rather than 0 when no run measured vertical: a day with no barometer
+        // data has unknown vertical, not zero vertical.
+        let verticals = runs.compactMap { $0.verticalDrop }
+        agg.totalVertical = verticals.isEmpty ? nil : verticals.reduce(0, +)
+        agg.totalSkiingTime = runs.compactMap { $0.duration }.reduce(0, +)
         sessionAggregates = agg
     }
 
@@ -176,7 +165,8 @@ final class PostRunViewModel {
     func loadSessionAggregatesFromRecords(_ records: [RunRecord]) {
         var agg = SessionAggregates()
         agg.runCount = records.count
-        agg.totalVertical = records.compactMap { $0.verticalDrop }.reduce(0, +)
+        let verticals = records.compactMap { $0.verticalDrop }
+        agg.totalVertical = verticals.isEmpty ? nil : verticals.reduce(0, +)
         agg.totalSkiingTime = records.compactMap { run -> TimeInterval? in
             guard let end = run.endTimestamp else { return nil }
             return end.timeIntervalSince(run.startTimestamp)
@@ -192,8 +182,8 @@ final class PostRunViewModel {
         return snapshots.min(by: { abs($0.timestamp - timestamp) < abs($1.timestamp - timestamp) })
     }
 
-    // Scrubber lookup on FrameData — used by tests (no ModelContainer needed).
-    func selectFrameData(at timestamp: TimeInterval, from data: [FrameData]) -> FrameData? {
+    // Scrubber lookup on StatsFrame — used by tests (no ModelContainer needed).
+    func selectFrameData(at timestamp: TimeInterval, from data: [StatsFrame]) -> StatsFrame? {
         data.min(by: { abs($0.timestamp - timestamp) < abs($1.timestamp - timestamp) })
     }
 }

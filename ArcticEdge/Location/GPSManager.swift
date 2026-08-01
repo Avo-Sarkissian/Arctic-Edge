@@ -59,6 +59,29 @@ nonisolated struct GPSReading: Sendable {
     var hasCoordinate: Bool { latitude != 0 || longitude != 0 }
 }
 
+// MARK: - GPSFix
+
+/// The slice of a GPS reading that is stamped onto a batch of frames at flush
+/// time. Accuracy travels with the speed so downstream stats can reject a bad
+/// fix; previously only the bare speed scalar survived to storage.
+nonisolated struct GPSFix: Sendable, Equatable {
+    let speed: Double
+    let horizontalAccuracy: Double?
+    let speedAccuracy: Double?
+
+    init(speed: Double, horizontalAccuracy: Double?, speedAccuracy: Double?) {
+        self.speed = speed
+        self.horizontalAccuracy = horizontalAccuracy
+        self.speedAccuracy = speedAccuracy
+    }
+
+    init(reading: GPSReading) {
+        self.speed = reading.speed
+        self.horizontalAccuracy = reading.horizontalAccuracy >= 0 ? reading.horizontalAccuracy : nil
+        self.speedAccuracy = reading.speedAccuracy >= 0 ? reading.speedAccuracy : nil
+    }
+}
+
 // MARK: - GPSHealth
 
 /// Why GPS is or is not producing usable fixes. Surfaced to the UI so a

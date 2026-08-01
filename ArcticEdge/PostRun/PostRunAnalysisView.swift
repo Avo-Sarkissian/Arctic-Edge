@@ -101,15 +101,15 @@ struct PostRunAnalysisView: View {
                 spacing: 10
             ) {
                 PostRunStatCard(label: "TOP SPEED",
-                               value: formatSpeed(viewModel.stats.topSpeed))
+                               value: MetricFormatter.speed(viewModel.stats.topSpeed))
                 PostRunStatCard(label: "AVG SPEED",
-                               value: formatSpeed(viewModel.stats.avgSpeed))
+                               value: MetricFormatter.speed(viewModel.stats.avgSpeed))
                 PostRunStatCard(label: "VERTICAL",
-                               value: String(format: "%.0fm", viewModel.stats.verticalDrop))
+                               value: MetricFormatter.altitudeWithUnit(viewModel.stats.verticalDrop))
                 PostRunStatCard(label: "DISTANCE",
-                               value: String(format: "%.2fkm", viewModel.stats.distanceMeters / 1000))
+                               value: MetricFormatter.distanceWithUnit(viewModel.stats.distanceMeters))
                 PostRunStatCard(label: "DURATION",
-                               value: formatDuration(viewModel.stats.duration))
+                               value: MetricFormatter.duration(viewModel.stats.duration))
             }
         }
     }
@@ -123,9 +123,9 @@ struct PostRunAnalysisView: View {
                 PostRunStatCard(label: "RUNS",
                                value: "\(viewModel.sessionAggregates.runCount)")
                 PostRunStatCard(label: "TOTAL VERT",
-                               value: String(format: "%.0fm", viewModel.sessionAggregates.totalVertical))
+                               value: MetricFormatter.altitudeWithUnit(viewModel.sessionAggregates.totalVertical))
                 PostRunStatCard(label: "SKI TIME",
-                               value: formatDuration(viewModel.sessionAggregates.totalSkiingTime))
+                               value: MetricFormatter.duration(viewModel.sessionAggregates.totalSkiingTime))
             }
         }
     }
