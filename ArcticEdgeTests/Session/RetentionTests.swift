@@ -21,9 +21,23 @@ struct RetentionTests {
         return (PersistenceService(modelContainer: container), container)
     }
 
+    /// Uptime values are offset from the machine's *current* uptime, not from
+    /// zero.
+    ///
+    /// PersistenceService derives each frame's wallClock from its uptime via
+    /// UptimeClock, which anchors on the boot instant. A frame at uptime 0 is
+    /// therefore stamped with the moment the machine booted. On a host that has
+    /// been up for weeks that lands outside the retention window, so a test
+    /// using small uptimes would assert on how long the developer's Mac had been
+    /// running. Production frames always carry an uptime near the current one.
+    /// Captured once per test instance. A computed property would advance
+    /// between the frame writes and the assertions, so uptime ranges would not
+    /// line up with the frames they were meant to select.
+    private let base: TimeInterval = ProcessInfo.processInfo.systemUptime
+
     private func frame(runID: UUID, uptime: TimeInterval) -> FilteredFrame {
         FilteredFrame(
-            timestamp: uptime, runID: runID,
+            timestamp: base + uptime, runID: runID,
             pitch: 0, roll: 0, yaw: 0,
             userAccelX: 0, userAccelY: 0, userAccelZ: 0,
             gravityX: 0, gravityY: 0, gravityZ: -1,
@@ -124,10 +138,33 @@ struct RetentionTests {
         try await service.createRunRecord(runID: realRun, startTimestamp: Date())
         try await service.flushWithGPS(frames: (0..<10).map { frame(runID: throwaway, uptime: Double($0)) }, fix: nil)
 
-        try await service.retagFrames(fromUptime: 0, toUptime: 4, runID: realRun)
+        try await service.retagFrames(fromUptime: base, toUptime: base + 4, runID: realRun)
 
         let reclaimed = try await service.fetchFrameDataForRun(runID: realRun)
         #expect(reclaimed.count == 5, "frames at uptime 0 through 4 should now belong to the run")
+    }
+
+    @Test("frames older than the window are removed, recent ones are not")
+    func testRetentionBoundary() async throws {
+        // Mixed ages in one store: the cutoff must split them, not take all or none.
+        let (service, _) = try makeService()
+        let runID = UUID()
+        try await service.createRunRecord(runID: runID, startTimestamp: Date())
+
+        // Recent frames: uptime near now, so wallClock is near now.
+        try await service.flushWithGPS(frames: (0..<5).map { frame(runID: runID, uptime: Double($0)) }, fix: nil)
+        // Old frames: 40 days of uptime earlier, so wallClock is 40 days ago.
+        let fortyDays: TimeInterval = -40 * 24 * 3600
+        try await service.flushWithGPS(
+            frames: (0..<7).map { frame(runID: runID, uptime: fortyDays + Double($0)) }, fix: nil
+        )
+        #expect(try await service.frameCount() == 12)
+
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
+        let deleted = try await service.pruneFrames(olderThan: cutoff, keepingRunIDs: [])
+
+        #expect(deleted == 7, "only the 40-day-old frames should expire, deleted \(deleted)")
+        #expect(try await service.frameCount() == 5)
     }
 
     @Test("deleting all data leaves nothing behind")
