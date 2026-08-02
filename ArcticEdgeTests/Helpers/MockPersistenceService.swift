@@ -91,5 +91,16 @@ actor MockPersistenceService: PersistenceServiceProtocol {
 
     func updateResortName(runID: UUID, resortName: String) async throws {
         // No-op in mock — geocode cache write is fire-and-forget in tests.
+        resortNameWrites.append((runID: runID, resortName: resortName))
+    }
+
+    private(set) var resortNameWrites: [(runID: UUID, resortName: String)] = []
+
+    // Onset-window retagging. Recorded so tests can assert that a confirmed run
+    // reclaims the frames captured before confirmation.
+    private(set) var retagCalls: [(from: TimeInterval, to: TimeInterval, runID: UUID)] = []
+
+    func retagFrames(fromUptime: TimeInterval, toUptime: TimeInterval, runID: UUID) async throws {
+        retagCalls.append((from: fromUptime, to: toUptime, runID: runID))
     }
 }

@@ -89,6 +89,37 @@ struct MotionManagerTests {
         #expect(count == 3, "RingBuffer should contain 3 frames after 3 receive() calls, got \(count)")
     }
 
+    @Test("ingest stamps the currently active runID, which can change mid-stream")
+    func testIngestUsesActiveRunID() async {
+        // Bug 1 fix: persisted frames must carry the active per-run runID so
+        // they match the RunRecord, not a single day-level UUID.
+        let (manager, _, ringBuffer) = makeManager()
+        let runA = UUID()
+        let runB = UUID()
+
+        await manager.setActiveRunID(runA)
+        await manager.ingest(
+            timestamp: 0.0,
+            pitch: 0, roll: 0, yaw: 0,
+            userAccelX: 0, userAccelY: 0, userAccelZ: 0,
+            gravityX: 0, gravityY: 0, gravityZ: 0,
+            rotationRateX: 0, rotationRateY: 0, rotationRateZ: 0
+        )
+        await manager.setActiveRunID(runB)
+        await manager.ingest(
+            timestamp: 0.01,
+            pitch: 0, roll: 0, yaw: 0,
+            userAccelX: 0, userAccelY: 0, userAccelZ: 0,
+            gravityX: 0, gravityY: 0, gravityZ: 0,
+            rotationRateX: 0, rotationRateY: 0, rotationRateZ: 0
+        )
+
+        let frames = await ringBuffer.drain()
+        #expect(frames.count == 2)
+        #expect(frames.first?.runID == runA)
+        #expect(frames.last?.runID == runB)
+    }
+
     @Test("adjustSampleRate for nominal thermal state sets interval to 0.01 (100Hz)")
     func testThermalNominalIs100Hz() async {
         let (manager, mockSource, _) = makeManager()

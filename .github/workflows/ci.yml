@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    # macos-26 is required, not a preference: the app's deployment target is
+    # iOS 26.2, and macos-15 ships Xcode 16.4 whose newest simulator SDK is
+    # iOS 18.5. On that image every build fails before compiling a single file
+    # with "the range of supported deployment target versions is 12.0 to 18.5.99".
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      SCHEME: ArcticEdge
+      # Present in the iOS 26.2, 26.4, and 26.5 runtimes on this image.
+      DESTINATION: 'platform=iOS Simulator,name=iPhone 17 Pro'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i "ios" || true
+
+      # Compile check first: it needs no simulator and fails fast on the most
+      # common breakage. Strict concurrency is on for every target, so this also
+      # catches actor isolation regressions.
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme "$SCHEME" \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build.log
+
+      # The project treats warnings as work to be done, so surface any that
+      # appear rather than letting them accumulate silently.
+      - name: Fail on new warnings
+        run: |
+          if grep -E "warning:" build.log | grep -v "appintentsmetadataprocessor" | sort -u | grep .; then
+            echo "::error::Build produced warnings"
+            exit 1
+          fi
+          echo "No warnings."
+
+      # Deliberately NO retry here. Unit tests are deterministic; one that needs
+      # a second attempt is telling you something and should not be silenced.
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -only-testing:ArcticEdgeTests \
+            | tee unit-tests.log
+
+      # UI tests are QUARANTINED: they run and are reported, but do not fail the
+      # build. See docs/ARCHITECTURE.md "UI test quarantine" for the full state.
+      #
+      # Short version: all eight cases have passed on CI, but one or two
+      # intermittently time out with "process main thread busy for 30.0s", always
+      # whichever runs first, sometimes taking 600s+ before giving up. Retries do
+      # not clear it. It is not store creation: measured cold launch after a fresh
+      # install is ~1.5s, the same as warm. The cause is not yet understood, so
+      # the honest position is "unreliable and unexplained", not "environmental".
+      #
+      # They stay in CI because they have already earned their keep: a genuinely
+      # broken delete confirmation was caught here and would have shipped
+      # otherwise. Build and unit tests are the gate; this is signal, not a gate.
+      - name: UI tests (quarantined, non-blocking)
+        id: ui_tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -only-testing:ArcticEdgeUITests \
+            -retry-tests-on-failure \
+            -test-iterations 2 \
+            | tee ui-tests.log
+
+      - name: Report UI test outcome
+        if: always()
+        run: |
+          {
+            echo "### UI tests (quarantined)"
+            echo ""
+            echo "Outcome: \`${{ steps.ui_tests.outcome }}\` — does not block the build."
+            echo ""
+            if [ -f ui-tests.log ]; then
+              grep -oE "Test case '[^']+' (passed|failed)" ui-tests.log | sort -u \
+                | sed 's/^/- /' || echo "- no per-case results parsed"
+            fi
+            echo ""
+            echo "A case failing consistently across runs is real. See docs/ARCHITECTURE.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-and-test-logs
+          path: |
+            build.log
+            unit-tests.log
+            ui-tests.log
+          retention-days: 7
+          if-no-files-found: ignore

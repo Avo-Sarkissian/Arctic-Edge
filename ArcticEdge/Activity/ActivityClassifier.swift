@@ -44,6 +44,10 @@ protocol PersistenceServiceProtocol: Actor {
     // Phase 3 history pagination and geocode cache write for HistoryViewModel.
     func fetchRunHistory(offset: Int, limit: Int) async throws -> [RunSnapshot]
     func updateResortName(runID: UUID, resortName: String) async throws
+    // Re-stamps frames captured during the skiing onset window onto the run they
+    // actually belong to. Frames are tagged at capture time, before the classifier
+    // has confirmed the run, so the onset window lands on a throwaway id.
+    func retagFrames(fromUptime: TimeInterval, toUptime: TimeInterval, runID: UUID) async throws
 }
 
 // MARK: - ActivityClassifier
@@ -73,6 +77,11 @@ actor ActivityClassifier {
     private var pendingRunEndAt: Date?
     private var pendingFrames: [FilteredFrame] = []
     private(set) var currentRunID: UUID?
+
+    // Uptime span of the skiing onset window for the run in progress. Those
+    // frames were captured before the run was confirmed, so they carry the
+    // previous throwaway runID and are reclaimed at finalization.
+    private var pendingOnsetWindow: (start: TimeInterval, end: TimeInterval)?
 
     private var varianceWindow: [Double] = []
     private(set) var latestGPS: GPSReading?
@@ -110,6 +119,40 @@ actor ActivityClassifier {
 
     private var consumptionTasks: [Task<Void, Never>] = []
     private var persistence: (any PersistenceServiceProtocol)?
+
+    // MARK: - Run lifecycle sinks
+    //
+    // The classifier owns run boundaries, so it is the only place that knows the
+    // exact moment a run starts and ends. These closures let it push that fact out
+    // immediately instead of having the app discover it by polling at 10 Hz.
+    //
+    // runIDSink retags live capture. runFinalizedSink triggers the scoring and
+    // stats pass. Both are closures rather than protocol members so the classifier
+    // stays free of any dependency on MotionManager or the scoring engine.
+
+    private var runIDSink: (@Sendable (UUID) async -> Void)?
+    private var runFinalizedSink: (@Sendable (UUID) async -> Void)?
+
+    func setRunIDSink(_ sink: @escaping @Sendable (UUID) async -> Void) { runIDSink = sink }
+    func setRunFinalizedSink(_ sink: @escaping @Sendable (UUID) async -> Void) { runFinalizedSink = sink }
+
+    // Serial chain for run lifecycle writes. create, retag, and finalize used to be
+    // independent unstructured Tasks, so a short run could finalize before its
+    // RunRecord existed and the finalize would silently no-op.
+    private var lifecycleChain: Task<Void, Never>?
+
+    private func enqueueLifecycle(_ work: @escaping @Sendable () async -> Void) {
+        let previous = lifecycleChain
+        lifecycleChain = Task {
+            await previous?.value
+            await work()
+        }
+    }
+
+    /// Waits for every queued run lifecycle write to land. Used by endDay and tests.
+    func drainLifecycleQueue() async {
+        await lifecycleChain?.value
+    }
 
     // MARK: - Init
 
@@ -155,14 +198,11 @@ actor ActivityClassifier {
         consumptionTasks.forEach { $0.cancel() }
         consumptionTasks = []
         if state == .skiing, let runID = currentRunID {
-            // Stats computed by PostRunViewModel at query time; pass nil here.
-            try? await persistence?.finalizeRunRecord(
-                runID: runID, endTimestamp: clock(),
-                topSpeed: nil, avgSpeed: nil,
-                verticalDrop: nil, distanceMeters: nil,
-                resortName: nil
-            )
+            finalizeRun(runID: runID, endTimestamp: clock())
         }
+        // Let every queued create/retag/finalize land before tearing down, so the
+        // last run of the day is scored rather than cancelled mid-write.
+        await drainLifecycleQueue()
         resetAllState()
     }
 
@@ -171,11 +211,15 @@ actor ActivityClassifier {
         pendingSkiingOnsetAt = nil
         pendingRunEndAt = nil
         pendingFrames = []
+        pendingOnsetWindow = nil
         currentRunID = nil
         varianceWindow = []
         latestGPS = nil
         latestActivity = nil
         persistence = nil
+        lifecycleChain = nil
+        runIDSink = nil
+        runFinalizedSink = nil
     }
 
     // MARK: - Frame processing
@@ -216,9 +260,37 @@ actor ActivityClassifier {
     private func confirmSkiingTransition() {
         let runID = UUID()
         currentRunID = runID
-        let startTimestamp = pendingFrames.first.map { Date(timeIntervalSince1970: $0.timestamp) } ?? clock()
+
+        // The run began when onset accumulation started, not when it was confirmed.
+        // pendingSkiingOnsetAt is already wall-clock (it comes from clock()), so it
+        // shares a domain with the endTimestamp set on finalization. This used to
+        // read Date(timeIntervalSince1970: frame.timestamp), but a FilteredFrame
+        // timestamp is CMDeviceMotion uptime, which put every run start in 1970.
+        let startTimestamp = pendingSkiingOnsetAt ?? clock()
+        // Uptime bound for the same instant, so frames (which carry uptime) can be
+        // matched to this run by time range and not only by runID.
+        let startUptime = pendingFrames.first?.timestamp
+
+        // Remember the onset window so it can be reclaimed at finalization. The
+        // retag cannot happen now: part of that window is still sitting in the
+        // ring buffer, unflushed, so a retag here would miss it.
+        if let startUptime {
+            pendingOnsetWindow = (startUptime, pendingFrames.last?.timestamp ?? startUptime)
+        } else {
+            pendingOnsetWindow = nil
+        }
+
         let service = persistence
-        Task { try? await service?.createRunRecord(runID: runID, startTimestamp: startTimestamp) }
+        enqueueLifecycle {
+            try? await service?.createRunRecord(runID: runID, startTimestamp: startTimestamp)
+        }
+
+        // Tell MotionManager directly rather than waiting for the 10 Hz HUD poll,
+        // which left up to 100 ms of further frames on the old id.
+        if let sink = runIDSink {
+            Task { await sink(runID) }
+        }
+
         state = .skiing
         pendingSkiingOnsetAt = nil
         pendingFrames = []
@@ -239,19 +311,52 @@ actor ActivityClassifier {
 
     private func confirmChairliftTransition() {
         if let runID = currentRunID {
-            let service = persistence
-            let endTime = clock()
-            // Stats computed by PostRunViewModel at query time; pass nil here.
-            Task { try? await service?.finalizeRunRecord(
-                runID: runID, endTimestamp: endTime,
-                topSpeed: nil, avgSpeed: nil,
-                verticalDrop: nil, distanceMeters: nil,
-                resortName: nil
-            ) }
+            finalizeRun(runID: runID, endTimestamp: clock())
         }
         currentRunID = nil
         state = .chairlift
         pendingRunEndAt = nil
+    }
+
+    /// Closes out a run: stamps the end time, then hands the run to the
+    /// finalization sink so its stats and carving score are computed and stored.
+    ///
+    /// Scoring used to happen only if the post-run sheet happened to load, so a
+    /// skier who took 20 runs and opened 3 sheets ended the day with 17 unscored
+    /// runs. Finalization is the only moment guaranteed to happen for every run.
+    private func finalizeRun(runID: UUID, endTimestamp: Date) {
+        let service = persistence
+        let finalized = runFinalizedSink
+        let switchTag = runIDSink
+        let onsetWindow = pendingOnsetWindow
+        pendingOnsetWindow = nil
+        enqueueLifecycle {
+            // Reclaim the onset window first, so the stats and score below see the
+            // whole run. By now every frame has been flushed, which is why this
+            // cannot run at confirmation time: the tail is still in the ring buffer
+            // at that point.
+            if let onsetWindow {
+                try? await service?.retagFrames(
+                    fromUptime: onsetWindow.start,
+                    toUptime: onsetWindow.end,
+                    runID: runID
+                )
+            }
+            // Stats and score are written by the finalization sink, which needs the
+            // run's frames. Stamp the end time first so those queries see a closed run.
+            try? await service?.finalizeRunRecord(
+                runID: runID, endTimestamp: endTimestamp,
+                topSpeed: nil, avgSpeed: nil,
+                verticalDrop: nil, distanceMeters: nil,
+                resortName: nil
+            )
+            await finalized?(runID)
+        }
+        // Point live capture at a throwaway id so lift frames do not pollute the
+        // run that just closed.
+        if let switchTag {
+            Task { await switchTag(UUID()) }
+        }
     }
 
     // MARK: - Signal predicates
@@ -312,14 +417,9 @@ actor ActivityClassifier {
         consumptionTasks.forEach { $0.cancel() }
         consumptionTasks = []
         if state == .skiing, let runID = currentRunID {
-            // Stats computed by PostRunViewModel at query time; pass nil here.
-            try? await persistence?.finalizeRunRecord(
-                runID: runID, endTimestamp: clock(),
-                topSpeed: nil, avgSpeed: nil,
-                verticalDrop: nil, distanceMeters: nil,
-                resortName: nil
-            )
+            finalizeRun(runID: runID, endTimestamp: clock())
         }
+        await drainLifecycleQueue()
         resetAllState()
     }
 }

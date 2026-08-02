@@ -8,7 +8,7 @@
 
 import Foundation
 
-struct RunSnapshot: Sendable {
+nonisolated struct RunSnapshot: Sendable {
     let runID: UUID
     let startTimestamp: Date
     let endTimestamp: Date?
@@ -18,6 +18,10 @@ struct RunSnapshot: Sendable {
     let verticalDrop: Double?
     let distanceMeters: Double?
     let resortName: String?
+    let carvingScore: Double?
+    let carvingScoreVersion: String?
+    let latitude: Double?
+    let longitude: Double?
 
     nonisolated init(from record: RunRecord) {
         self.runID = record.runID
@@ -29,5 +33,14 @@ struct RunSnapshot: Sendable {
         self.verticalDrop = record.verticalDrop
         self.distanceMeters = record.distanceMeters
         self.resortName = record.resortName
+        self.carvingScore = record.carvingScore
+        self.carvingScoreVersion = record.carvingScoreVersion
+        self.latitude = record.latitude
+        self.longitude = record.longitude
+    }
+
+    /// Duration between start and end. nil while the run is still open.
+    var duration: TimeInterval? {
+        endTimestamp.map { $0.timeIntervalSince(startTimestamp) }
     }
 }

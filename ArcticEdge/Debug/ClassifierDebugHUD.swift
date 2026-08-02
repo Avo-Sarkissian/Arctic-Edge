@@ -36,7 +36,8 @@ struct ClassifierDebugHUD: View {
 
             // Classifier diagnostic values
             Group {
-                hudRow(label: "GPS", value: String(format: "%.1f m/s", appModel.lastGPSSpeed))
+                hudRow(label: "GPS", value: appModel.lastGPSSpeed >= 0
+                    ? String(format: "%.1f m/s", appModel.lastGPSSpeed) : "--")
                 hudRow(label: "VAR", value: String(format: "%.4f g\u{00B2}", appModel.lastGForceVariance))
                 hudRow(label: "ACT", value: appModel.lastActivityLabel)
             }

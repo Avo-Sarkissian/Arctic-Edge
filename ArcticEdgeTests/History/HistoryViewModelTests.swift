@@ -7,7 +7,7 @@
 //
 // Requirements covered:
 //   HIST-01: Pagination — fetchNextPage() advances fetchOffset by pageSize
-//   HIST-02: Resort name fallback — CLPlacemark.name → .locality → "Mountain Resort"
+//   HIST-02: Resort name fallback — map item name -> locality -> "Unnamed mountain"
 
 import Testing
 import Foundation
@@ -66,7 +66,7 @@ struct HistoryViewModelTests {
         #expect(vm.hasMore == false)   // second page also returned 50, but total is 100 which equals limit*2
     }
 
-    @Test("resort name falls back through name → locality → Mountain Resort")
+    @Test("resort name falls back through name, then locality, then a neutral label")
     func testResortNameFallback() async throws {
         let vm = HistoryViewModel()
 
@@ -79,13 +79,13 @@ struct HistoryViewModelTests {
         // Case 3: name is numeric — fall back to locality
         #expect(vm.resortNameFrom(name: "1234 Mountain Road", locality: "Aspen") == "Aspen")
 
-        // Case 4: both nil — fall back to "Mountain Resort"
-        #expect(vm.resortNameFrom(name: nil, locality: nil) == "Mountain Resort")
+        // Case 4: both nil. The fallback names nothing rather than inventing a resort.
+        #expect(vm.resortNameFrom(name: nil, locality: nil) == "Unnamed mountain")
 
         // Case 5: name is empty string — fall back to locality
         #expect(vm.resortNameFrom(name: "", locality: "Breckenridge") == "Breckenridge")
 
-        // Case 6: both empty — fall back to "Mountain Resort"
-        #expect(vm.resortNameFrom(name: "", locality: "") == "Mountain Resort")
+        // Case 6: both empty
+        #expect(vm.resortNameFrom(name: "", locality: "") == "Unnamed mountain")
     }
 }

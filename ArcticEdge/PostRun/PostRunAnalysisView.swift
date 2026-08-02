@@ -2,7 +2,7 @@
 // ArcticEdge
 //
 // Post-run analysis sheet presenting per-run stats, session aggregates,
-// and three interactive Swift Charts (carve pressure, g-force, GPS speed).
+// and three interactive Swift Charts (vertical load, g-force, GPS speed).
 // chartXSelection drives the scrubber for ANLYS-04.
 //
 // Presented as a .sheet from TodayTabView (plan 03-06) on run end.
@@ -13,23 +13,18 @@ import Charts
 
 struct PostRunAnalysisView: View {
     let runID: UUID
+    /// True when this is the run that just ended, so the ring buffer is flushed
+    /// before querying. Opening an old history row must not disturb live capture.
+    var isLiveRun: Bool = true
     @Environment(AppModel.self) private var appModel
+    @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = PostRunViewModel()
     @State private var selectedTimestamp: TimeInterval? = nil
 
     var body: some View {
         ZStack {
-            // Arctic Dark background
-            LinearGradient(
-                stops: [
-                    .init(color: Color(red: 0.051, green: 0.067, blue: 0.090), location: 0),
-                    .init(color: Color(red: 0.024, green: 0.039, blue: 0.059), location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            Theme.Gradients.slate.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -42,6 +37,13 @@ struct PostRunAnalysisView: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 60)
                     } else {
+                        // The carving score leads: it is the reason this screen
+                        // exists, and the stats below are supporting context.
+                        if let score = viewModel.carvingScore {
+                            CarvingScoreView(score: score)
+                            Divider().overlay(Theme.Palette.hairline)
+                        }
+
                         // Per-run stats
                         statsSection
 
@@ -64,7 +66,8 @@ struct PostRunAnalysisView: View {
             await viewModel.loadData(
                 runID: runID,
                 persistenceService: service,
-                ringBuffer: appModel.ringBuffer
+                ringBuffer: appModel.ringBuffer,
+                isLiveRun: isLiveRun
             )
         }
     }
@@ -74,20 +77,19 @@ struct PostRunAnalysisView: View {
     private var headerSection: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("RUN COMPLETE")
-                    .font(.system(size: 11, weight: .medium))
-                    .tracking(2.5)
-                    .foregroundStyle(Color(red: 0.12, green: 0.56, blue: 1.0))
+                Text(isLiveRun ? "RUN COMPLETE" : "RUN DETAIL")
+                    .arcticLabel(Theme.Palette.arctic)
                 Text("Analysis")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(Theme.Typography.display)
+                    .foregroundStyle(Theme.Palette.textPrimary)
             }
             Spacer()
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 26))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(Theme.Palette.textTertiary)
             }
+            .accessibilityLabel("Close")
         }
     }
 
@@ -101,15 +103,15 @@ struct PostRunAnalysisView: View {
                 spacing: 10
             ) {
                 PostRunStatCard(label: "TOP SPEED",
-                               value: formatSpeed(viewModel.stats.topSpeed))
+                               value: MetricFormatter.speed(viewModel.stats.topSpeed, units: settings.unitSystem))
                 PostRunStatCard(label: "AVG SPEED",
-                               value: formatSpeed(viewModel.stats.avgSpeed))
+                               value: MetricFormatter.speed(viewModel.stats.avgSpeed, units: settings.unitSystem))
                 PostRunStatCard(label: "VERTICAL",
-                               value: String(format: "%.0fm", viewModel.stats.verticalDrop))
+                               value: MetricFormatter.altitudeWithUnit(viewModel.stats.verticalDrop, units: settings.unitSystem))
                 PostRunStatCard(label: "DISTANCE",
-                               value: String(format: "%.2fkm", viewModel.stats.distanceMeters / 1000))
+                               value: MetricFormatter.distanceWithUnit(viewModel.stats.distanceMeters, units: settings.unitSystem))
                 PostRunStatCard(label: "DURATION",
-                               value: formatDuration(viewModel.stats.duration))
+                               value: MetricFormatter.duration(viewModel.stats.duration))
             }
         }
     }
@@ -123,9 +125,9 @@ struct PostRunAnalysisView: View {
                 PostRunStatCard(label: "RUNS",
                                value: "\(viewModel.sessionAggregates.runCount)")
                 PostRunStatCard(label: "TOTAL VERT",
-                               value: String(format: "%.0fm", viewModel.sessionAggregates.totalVertical))
+                               value: MetricFormatter.altitudeWithUnit(viewModel.sessionAggregates.totalVertical, units: settings.unitSystem))
                 PostRunStatCard(label: "SKI TIME",
-                               value: formatDuration(viewModel.sessionAggregates.totalSkiingTime))
+                               value: MetricFormatter.duration(viewModel.sessionAggregates.totalSkiingTime))
             }
         }
     }
@@ -136,11 +138,15 @@ struct PostRunAnalysisView: View {
         VStack(alignment: .leading, spacing: 20) {
             sectionHeader("TELEMETRY")
 
-            // Carve pressure (hero signal)
+            // Vertical load: acceleration along gravity, high-pass filtered.
+            // Not "carve pressure": a single pocket phone cannot measure the
+            // pressure on either ski. This is whole-body vertical loading.
             chartView(
-                title: "CARVE PRESSURE",
-                data: viewModel.snapshots.map { ($0.timestamp, $0.filteredAccelZ) },
-                color: Color(red: 0.12, green: 0.56, blue: 1.0)
+                title: "VERTICAL LOAD",
+                data: viewModel.snapshots.compactMap { snap in
+                    snap.filteredVerticalAccel.map { (snap.timestamp, $0) }
+                },
+                color: Theme.Palette.arctic
             )
 
             // G-force
@@ -150,17 +156,18 @@ struct PostRunAnalysisView: View {
                     (snap.timestamp,
                      hypot(snap.userAccelX, hypot(snap.userAccelY, snap.userAccelZ)))
                 },
-                color: Color(red: 0.4, green: 0.9, blue: 0.6)
+                color: Theme.Palette.mint
             )
 
             // GPS speed (only snapshots with a reading)
             chartView(
-                title: "SPEED (KM/H)",
+                title: "SPEED (\(settings.unitSystem.speedSuffix.uppercased()))",
                 data: viewModel.snapshots.compactMap { snap in
-                    guard let s = snap.gpsSpeed else { return nil }
-                    return (snap.timestamp, s * 3.6)
+                    guard let s = snap.gpsSpeed, s >= 0 else { return nil }
+                    let converted = settings.unitSystem == .metric ? s * 3.6 : s * 2.236936
+                    return (snap.timestamp, converted)
                 },
-                color: Color(red: 1.0, green: 0.7, blue: 0.3)
+                color: Theme.Palette.amber
             )
         }
     }
@@ -215,16 +222,20 @@ struct PostRunAnalysisView: View {
         }
     }
 
-    // Scrubber annotation: shows pitch, roll, gForce, speed at selected timestamp
+    // Scrubber annotation at the selected timestamp.
+    //
+    // Device pitch and roll used to be shown here in degrees. For a pocket-worn
+    // phone those are the orientation of the phone in the pocket, not the skier's
+    // body angle, so they were presented as insight while measuring nothing.
+    // Replaced with the gravity-referenced channels the scoring engine trusts.
     private func scrubberAnnotation(at timestamp: TimeInterval) -> some View {
         let frame = viewModel.selectSnapshot(at: timestamp)
         return VStack(alignment: .leading, spacing: 3) {
             if let f = frame {
-                Text(String(format: "P: %.1f° R: %.1f°",
-                            f.pitch * 180 / .pi, f.roll * 180 / .pi))
-                Text(String(format: "G: %.2fg  %.0f km/h",
+                Text(String(format: "G: %.2fg   LAT: %@",
                             hypot(f.userAccelX, hypot(f.userAccelY, f.userAccelZ)),
-                            (f.gpsSpeed ?? 0) * 3.6))
+                            f.horizontalAccelMagnitude.map { String(format: "%.2fg", $0) } ?? "—"))
+                Text("\(MetricFormatter.speedWithUnit(f.gpsSpeed, units: settings.unitSystem))")
             }
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -237,10 +248,7 @@ struct PostRunAnalysisView: View {
     // MARK: - Helpers
 
     private func sectionHeader(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .medium))
-            .tracking(2.5)
-            .foregroundStyle(.white.opacity(0.4))
+        Text(text).arcticLabel()
     }
 
     private func formatSpeed(_ ms: Double) -> String {

@@ -130,6 +130,12 @@ actor WorkoutSessionManager {
         UserDefaults.standard.set(true, forKey: kSessionSentinelKey)
 
         if sessionProtocol == nil {
+            // HealthKit is absent on some devices and in the Simulator. Fail with a
+            // clear error instead of trapping: the caller degrades and keeps capturing.
+            guard HKHealthStore.isHealthDataAvailable() else {
+                UserDefaults.standard.removeObject(forKey: kSessionSentinelKey)
+                throw WorkoutSessionError.unavailable
+            }
             // Production path: request HealthKit authorization then create a real HKWorkoutSession.
             let store = HKHealthStore()
 
@@ -147,10 +153,19 @@ actor WorkoutSessionManager {
         }
 
         guard let session = sessionProtocol else {
+            UserDefaults.standard.removeObject(forKey: kSessionSentinelKey)
             throw WorkoutSessionError.unavailable
         }
 
-        try await session.start(on: Date())
+        do {
+            try await session.start(on: Date())
+        } catch {
+            // No session is running, so leaving the sentinel set would make the
+            // next launch believe it crashed mid-run.
+            UserDefaults.standard.removeObject(forKey: kSessionSentinelKey)
+            sessionProtocol = nil
+            throw error
+        }
         isActive = true
     }
 
@@ -177,6 +192,13 @@ actor WorkoutSessionManager {
 
 // MARK: - Errors
 
-enum WorkoutSessionError: Error {
+enum WorkoutSessionError: Error, LocalizedError {
     case unavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "HealthKit workout sessions are unavailable on this device."
+        }
+    }
 }

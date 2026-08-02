@@ -27,10 +27,66 @@ nonisolated enum PowerSaverMode: Equatable, Sendable {
     case saving   // 60Hz IMU, duty-cycled GPS (≤1 update/5s)
 }
 
+// MARK: - DaySummary
+
+/// Today's totals. Every measurement is Optional so an unmeasured value shows a
+/// dash instead of a zero that looks like a reading.
+nonisolated struct DaySummary: Sendable, Equatable {
+    var runCount: Int = 0
+    var averageScore: Double?
+    var totalVertical: Double?
+
+    /// Builds the summary from today's completed runs.
+    static func build(from runs: [RunSnapshot], calendar: Calendar = .current, now: Date = Date()) -> DaySummary {
+        let today = runs.filter { calendar.isDate($0.startTimestamp, inSameDayAs: now) }
+        let scores = today.compactMap { $0.carvingScore }
+        let verticals = today.compactMap { $0.verticalDrop }
+        return DaySummary(
+            runCount: today.count,
+            averageScore: scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count),
+            totalVertical: verticals.isEmpty ? nil : verticals.reduce(0, +)
+        )
+    }
+}
+
 // MARK: - AppModelError
 
-enum AppModelError: Error {
+enum AppModelError: Error, LocalizedError {
     case persistenceServiceNotReady
+
+    var errorDescription: String? {
+        switch self {
+        case .persistenceServiceNotReady:
+            return "Storage is still starting up. Try again in a moment."
+        }
+    }
+}
+
+// MARK: - Background task assertion
+
+// Wraps async work in a UIKit background task assertion so iOS does not suspend
+// the process partway through a SwiftData write. Emergency flushes used to run
+// in a bare detached Task, so a background transition could cut a save in half
+// and lose the tail of a run.
+@MainActor
+func withBackgroundAssertion(
+    name: String,
+    _ work: @Sendable @escaping () async -> Void
+) async {
+    var taskID: UIBackgroundTaskIdentifier = .invalid
+    taskID = UIApplication.shared.beginBackgroundTask(withName: name) {
+        // Expiration handler: iOS is reclaiming the assertion. Release it so
+        // the app is not killed for holding an expired task.
+        if taskID != .invalid {
+            UIApplication.shared.endBackgroundTask(taskID)
+            taskID = .invalid
+        }
+    }
+    await work()
+    if taskID != .invalid {
+        UIApplication.shared.endBackgroundTask(taskID)
+        taskID = .invalid
+    }
 }
 
 // MARK: - AppModel
@@ -49,6 +105,8 @@ final class AppModel {
     let gpsManager: GPSManager
     let activityManager: ActivityManager
     let activityClassifier: ActivityClassifier
+    let locationAuthorization: LocationAuthorization
+    let altimeterManager: AltimeterManager
 
     // PersistenceService is initialized asynchronously via setupPipelineAsync().
     // It is stored as an optional because @ModelActor init is async.
@@ -62,6 +120,19 @@ final class AppModel {
     private(set) var lastActivityLabel: String = "unknown"
     private(set) var hysteresisProgress: Double = 0
     private(set) var isDayActive: Bool = false
+
+    // Capture health. `captureWarnings` lists everything currently degrading the
+    // session (location denied, workout session unavailable, GPS lost) so the UI
+    // can be honest instead of silently recording nothing. `lastCaptureError`
+    // holds the most recent persistence failure, which used to be swallowed by
+    // `try?` at every call site.
+    private(set) var captureWarnings: [String] = []
+    private(set) var lastCaptureError: String? = nil
+    private(set) var gpsHealth: GPSHealth = .idle
+
+    /// Rolling totals for today, refreshed as runs finalize. Backs the Today tab
+    /// summary cards, which previously rendered hardcoded em dashes.
+    private(set) var daySummary: DaySummary = DaySummary()
 
     // Set by HUD polling when currentRunID transitions non-nil -> nil (run ended).
     // Observed by TodayTabView to auto-present PostRunAnalysisView.
@@ -119,12 +190,19 @@ final class AppModel {
         self.gpsManager = GPSManager()
         self.activityManager = ActivityManager()
         self.activityClassifier = ActivityClassifier()
+        self.altimeterManager = AltimeterManager()
+        // Its CLLocationManager is created later, from setupPipelineAsync, so
+        // this nonisolated init does not have to assert main-actor isolation.
+        self.locationAuthorization = LocationAuthorization()
     }
 
     // Called once from the WindowGroup .task modifier.
     // Initializes PersistenceService on a background queue via Task.detached,
     // then registers lifecycle observers.
     func setupPipelineAsync() async {
+        // Bring up Core Location authorization tracking before anything reads it.
+        locationAuthorization.activate()
+
         // PersistenceService must be created on a non-MainActor executor.
         // Task.detached detaches from the current (MainActor) executor, ensuring the
         // @ModelActor init runs on the model actor's background serial queue.
@@ -135,13 +213,21 @@ final class AppModel {
         persistenceService = service
 
         // Check for orphaned session from previous unclean exit (SESS-05).
+        //
+        // Recovery used to clear the sentinel and print. The RunRecords left open
+        // by the crash were never marked, so they sat in the store forever with no
+        // end timestamp, invisible to history (which filters on endTimestamp) and
+        // never cleaned up. markOrphanedRunRecord and fetchOpenRunIDs existed in
+        // PersistenceService with no callers at all.
         let sentinel = UserDefaults.standard.bool(forKey: kSessionSentinelKey)
         if sentinel {
             await workoutSessionManager.recoverOrphanedSession()
+            await recoverOrphanedRuns(service: service)
         }
 
         setupLifecycleObservers()
         setupBatteryMonitoring()
+        await refreshDaySummary()
     }
 
     // SESS-04: Register for app lifecycle notifications so the ring buffer is flushed
@@ -154,10 +240,13 @@ final class AppModel {
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            // Detach to avoid blocking the notification callback thread.
-            Task.detached {
-                try? await service.emergencyFlush(ringBuffer: rb)
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await withBackgroundAssertion(name: "ArcticEdge.backgroundFlush") {
+                    do { try await service.emergencyFlush(ringBuffer: rb) }
+                    catch { await self.recordCaptureError(error, context: "background flush") }
+                }
             }
         }
 
@@ -165,21 +254,66 @@ final class AppModel {
             forName: UIApplication.willTerminateNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            Task.detached {
-                try? await service.emergencyFlush(ringBuffer: rb)
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await withBackgroundAssertion(name: "ArcticEdge.terminateFlush") {
+                    do { try await service.emergencyFlush(ringBuffer: rb) }
+                    catch { await self.recordCaptureError(error, context: "shutdown flush") }
+                }
             }
         }
     }
+
+    // MARK: - Capture health
+
+    /// Records a persistence failure so it reaches the UI. Save errors used to be
+    /// discarded by `try?`, which meant a full disk or a cold-weather shutdown lost
+    /// data with no signal to the skier at all.
+    func recordCaptureError(_ error: Error, context: String) {
+        lastCaptureError = "\(context): \(error.localizedDescription)"
+    }
+
+    private func refreshCaptureWarnings() {
+        var warnings: [String] = []
+        if let reason = locationAuthorization.state.degradedReason, isDayActive || locationAuthorization.state.isBlocked {
+            warnings.append(reason)
+        }
+        if let gpsMessage = gpsHealth.message, gpsHealth != .awaitingFix,
+           locationAuthorization.state.degradedReason == nil {
+            warnings.append(gpsMessage)
+        }
+        if isDayActive && !isWorkoutSessionActive {
+            warnings.append("Background workout session unavailable: capture may stop when the screen locks.")
+        }
+        captureWarnings = warnings
+    }
+
+    // Tracks whether the HKWorkoutSession actually started. Capture continues
+    // without it, but background survival is not guaranteed, so the UI says so.
+    private(set) var isWorkoutSessionActive: Bool = false
 
     // MARK: - Power Saver
 
     // Enables UIDevice battery monitoring and registers for level-change notifications.
     // Battery level is -1 in simulator — guard on level >= 0 before acting.
     private func setupBatteryMonitoring() {
+        // Idempotent: startDay() re-arms after endDay() removed the observer.
+        if let existing = batteryObserver {
+            NotificationCenter.default.removeObserver(existing)
+            batteryObserver = nil
+        }
         UIDevice.current.isBatteryMonitoringEnabled = true
         let level = UIDevice.current.batteryLevel
-        if level >= 0 { batteryPercent = Int(level * 100) }
+        if level >= 0 {
+            batteryPercent = Int(level * 100)
+            // Honor the current level immediately rather than waiting for the
+            // first level-change notification, which may be an hour away.
+            let pct = Int(level * 100)
+            Task { @MainActor [weak self] in
+                await self?.updatePowerSaverMode(batteryPercent: pct)
+            }
+        }
         batteryObserver = NotificationCenter.default.addObserver(
             forName: UIDevice.batteryLevelDidChangeNotification,
             object: nil,
@@ -222,11 +356,32 @@ final class AppModel {
     // Start Day: arms GPS, ActivityManager, ActivityClassifier, IMU pipeline.
     // SESS-01: HKWorkoutSession must reach .running before CMMotionManager starts.
     func startDay() async throws {
-        // 1. HKWorkoutSession first (SESS-01 ordering constraint).
-        try await workoutSessionManager.start()
+        lastCaptureError = nil
 
-        // 2. Start GPS and Activity signal sources.
-        await gpsManager.start()
+        // 0. Location authorization. CLBackgroundActivitySession only grants
+        //    background execution once when-in-use authorization is held, so the
+        //    prompt has to resolve before GPS starts. A refusal degrades the
+        //    session (no speed, distance, or intensity pillar) but never blocks
+        //    IMU capture, which is the part that carries the carving score.
+        await locationAuthorization.requestIfNeeded()
+
+        // 1. HKWorkoutSession first (SESS-01 ordering constraint).
+        //    Denial or unavailability must NOT abort the day: the session buys
+        //    background CPU budget, it is not the source of any data. Capture
+        //    proceeds degraded and the UI warns that a screen lock may stop it.
+        do {
+            try await workoutSessionManager.start()
+            isWorkoutSessionActive = true
+        } catch {
+            isWorkoutSessionActive = false
+            recordCaptureError(error, context: "workout session")
+        }
+
+        // 2. Start GPS, barometer, and Activity signal sources.
+        if !locationAuthorization.state.isBlocked {
+            await gpsManager.start()
+        }
+        await altimeterManager.start()
         await activityManager.start()
 
         // 3. Get streams for classifier.
@@ -236,6 +391,28 @@ final class AppModel {
 
         guard let service = persistenceService else {
             throw AppModelError.persistenceServiceNotReady
+        }
+
+        // 3b. Prune expired and orphaned frames before adding a day's worth more.
+        //     Raw frames land at 100 Hz with no natural bound.
+        await pruneExpiredFrames(service: service)
+
+        // 3c. Install run lifecycle sinks. The classifier owns run boundaries, so
+        //     it pushes them here the instant they happen: retagging live capture
+        //     and triggering the score/stats pass for every run, not just the ones
+        //     whose post-run sheet the skier happened to open.
+        let mm = motionManager
+        await activityClassifier.setRunIDSink { runID in
+            await mm.setActiveRunID(runID)
+        }
+        let finalizer = RunFinalizer(persistence: service)
+        let rb = ringBuffer
+        await activityClassifier.setRunFinalizedSink { [weak self] runID in
+            // Flush first: the last couple of seconds of the run are still in the
+            // ring buffer, and scoring a run without its final turns understates it.
+            try? await service.emergencyFlush(ringBuffer: rb)
+            await finalizer.finalize(runID: runID)
+            await self?.refreshDaySummary()
         }
 
         // 4. Arm ActivityClassifier — it owns all run boundaries from here.
@@ -252,8 +429,15 @@ final class AppModel {
         startPeriodicFlush(runID: dayRunID)
         isDayActive = true
 
-        // 6. Start HUD polling loop.
+        // 6. Re-arm battery monitoring. endDay() tears it down, and this used to
+        //    be a launch-only call, so Power Saver was dead from the second
+        //    session of the process onward: exactly when a long day needs it.
+        setupBatteryMonitoring()
+
+        // 7. Start HUD polling loop.
         startHUDPolling()
+        refreshCaptureWarnings()
+        await refreshDaySummary()
     }
 
     // End Day: finalizes any open RunRecord, stops all capture.
@@ -267,17 +451,26 @@ final class AppModel {
         await activityClassifier.endDay()
         await broadcaster.stop()
         await gpsManager.stop()
+        await altimeterManager.stop()
         await activityManager.stop()
         await workoutSessionManager.end()
+        coordinateRecordedForRunID = nil
 
         if let service = persistenceService {
-            try await service.emergencyFlush(ringBuffer: ringBuffer)
+            let rb = ringBuffer
+            await withBackgroundAssertion(name: "ArcticEdge.endDayFlush") {
+                do { try await service.emergencyFlush(ringBuffer: rb) }
+                catch { await self.recordCaptureError(error, context: "end of day flush") }
+            }
         }
 
         isDayActive = false
+        isWorkoutSessionActive = false
+        gpsHealth = .idle
         classifierStateLabel = "IDLE"
         lastFinalizedRunID = nil
         previousRunID = nil
+        refreshCaptureWarnings()
 
         // Tear down battery monitoring for this session.
         if let obs = batteryObserver {
@@ -297,7 +490,9 @@ final class AppModel {
     private func startHUDPolling() {
         let classifier = activityClassifier
         let mm = motionManager
+        let gps = gpsManager
         hudPollingTask = Task { @MainActor [weak self] in
+            var warningTick = 0
             while !Task.isCancelled {
                 let stateLabel = await classifier.classifierStateLabel
                 let gpsSpeed = await classifier.latestGPS?.speed ?? -1
@@ -316,11 +511,31 @@ final class AppModel {
                 self?.hysteresisProgress = progress
                 self?.currentSampleRateHz = sampleRateHz
                 self?.thermalStateLabel = thermal.debugLabel
+                // Bug 1 fix: keep captured frames tagged with the active run so
+                // FrameRecord.runID matches RunRecord.runID. On run start, tag with
+                // the run's id; on run end, switch to a throwaway id so subsequent
+                // lift frames do not pollute the just-ended run's frame set.
+                let previous = self?.previousRunID ?? nil
+                if currentRunID != previous {
+                    if let id = currentRunID {
+                        await mm.setActiveRunID(id)
+                    } else {
+                        await mm.setActiveRunID(UUID())
+                    }
+                }
                 // Detect non-nil -> nil transition: a run just ended.
-                if let prev = self?.previousRunID, currentRunID == nil {
+                if let prev = previous, currentRunID == nil {
                     self?.lastFinalizedRunID = prev
                 }
                 self?.previousRunID = currentRunID
+                // GPS health changes slowly; sample it once a second rather than
+                // hitting the actor ten times for a value that rarely moves.
+                warningTick += 1
+                if warningTick % 10 == 0 {
+                    let health = await gps.health
+                    self?.gpsHealth = health
+                    self?.refreshCaptureWarnings()
+                }
                 try? await Task.sleep(for: .milliseconds(100))  // 10Hz HUD update
             }
         }
@@ -334,18 +549,109 @@ final class AppModel {
     private func startPeriodicFlush(runID: UUID) {
         guard let service = persistenceService else { return }
         let rb = ringBuffer
+        let classifier = activityClassifier
+        let altimeter = altimeterManager
         periodicFlushTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 if await rb.count >= 200 {
                     let frames = await rb.drain()
-                    let gpsSpeed = self.lastGPSSpeed >= 0 ? self.lastGPSSpeed : nil
-                    Task.detached {
-                        try? await service.flushWithGPS(frames: frames, gpsSpeed: gpsSpeed)
+                    // Carry the fix's accuracy, not just its speed, so per-run
+                    // statistics can reject the bad fixes that used to inflate
+                    // top speed. Altitude rides along as the vertical source.
+                    let reading = await classifier.latestGPS
+                    let fix = reading.map { GPSFix(reading: $0) }
+                    let altitude = await altimeter.latestAltitude
+                    do {
+                        try await service.flushWithGPS(frames: frames, fix: fix, altitude: altitude)
+                    } catch {
+                        self.recordCaptureError(error, context: "periodic flush")
                     }
                 }
+                await self.captureRunCoordinateIfNeeded(service: service)
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    // MARK: - Orphan recovery
+
+    /// Closes out runs left open by a crash or a forced quit.
+    ///
+    /// Each open run is finalized at the wall-clock time of its last captured
+    /// frame (not "now", which would invent hours of skiing), then scored like
+    /// any other run so the day is not silently missing entries. Runs with no
+    /// frames left are marked orphaned and excluded from history.
+    private func recoverOrphanedRuns(service: PersistenceService) async {
+        let openRunIDs = (try? await service.fetchOpenRunIDs()) ?? []
+        guard !openRunIDs.isEmpty else { return }
+
+        let finalizer = RunFinalizer(persistence: service)
+        for runID in openRunIDs {
+            let frames = (try? await service.fetchFrameDataForRun(runID: runID)) ?? []
+            guard let lastFrame = frames.last else {
+                try? await service.markOrphanedRunRecord(runID: runID)
+                continue
+            }
+            let end = UptimeClock().date(forUptime: lastFrame.timestamp)
+            try? await service.finalizeRunRecord(
+                runID: runID, endTimestamp: end,
+                topSpeed: nil, avgSpeed: nil,
+                verticalDrop: nil, distanceMeters: nil, resortName: nil
+            )
+            await finalizer.finalize(runID: runID)
+        }
+    }
+
+    // MARK: - Day summary
+
+    /// Recomputes today's totals from persisted runs. Called after every run
+    /// finalizes and when a day starts, so the Today cards stay current without
+    /// polling.
+    func refreshDaySummary() async {
+        guard let service = persistenceService else { return }
+        let runs = (try? await service.fetchCompletedRunSnapshots()) ?? []
+        daySummary = DaySummary.build(from: runs)
+    }
+
+    // MARK: - Run coordinate
+
+    // Records where a run started, once per run, from the first trustworthy fix.
+    // History needs a coordinate to reverse geocode a resort name from; without
+    // one every row read "Mountain Resort" regardless of where the skier was.
+    private var coordinateRecordedForRunID: UUID?
+
+    private func captureRunCoordinateIfNeeded(service: PersistenceService) async {
+        let runID = await activityClassifier.currentRunID
+        guard let runID, runID != coordinateRecordedForRunID else { return }
+        guard let reading = await activityClassifier.latestGPS,
+              reading.hasCoordinate,
+              reading.horizontalAccuracy >= 0, reading.horizontalAccuracy <= 100 else { return }
+        coordinateRecordedForRunID = runID
+        try? await service.updateRunCoordinate(
+            runID: runID,
+            latitude: reading.latitude,
+            longitude: reading.longitude
+        )
+    }
+
+    // MARK: - Retention
+
+    /// Frame retention window. Runs, their stats, and their carving scores are
+    /// kept forever; only the raw 100 Hz stream behind them expires. A single six
+    /// hour day is roughly two million frame rows, so an unbounded store fills the
+    /// device within a season.
+    static let frameRetentionDays = 30
+
+    private func pruneExpiredFrames(service: PersistenceService) async {
+        let cutoff = Calendar.current.date(
+            byAdding: .day, value: -Self.frameRetentionDays, to: Date()
+        ) ?? Date.distantPast
+        do {
+            _ = try await service.pruneFrames(olderThan: cutoff, keepingRunIDs: [])
+        } catch {
+            // Pruning is housekeeping: a failure must not block the day starting.
+            recordCaptureError(error, context: "frame cleanup")
         }
     }
 }
@@ -369,23 +675,37 @@ private extension ProcessInfo.ThermalState {
 @main
 struct ArcticEdgeApp: App {
     @State private var appModel = AppModel()
+    @State private var settings = AppSettings()
     // MetricKit subscriber retained for the process lifetime. Registers with
     // MXMetricManager.shared in its init; receives daily payloads on-device.
     private let metricKitSubscriber = MetricKitSubscriber()
 
     var body: some Scene {
         WindowGroup {
-            TabView {
-                Tab("Today", systemImage: "mountain.2.fill") {
-                    TodayTabView()
-                }
-                Tab("History", systemImage: "clock.fill") {
-                    RunHistoryView()
+            Group {
+                if settings.hasCompletedOnboarding {
+                    TabView {
+                        Tab("Today", systemImage: "mountain.2.fill") {
+                            TodayTabView()
+                        }
+                        Tab("History", systemImage: "clock.fill") {
+                            RunHistoryView()
+                        }
+                        Tab("Settings", systemImage: "gearshape.fill") {
+                            SettingsView()
+                        }
+                    }
+                } else {
+                    // Explain the permissions before iOS asks for them, so the
+                    // first Start Day is not three prompts with no context.
+                    OnboardingView()
                 }
             }
-            .tint(Color(red: 0.12, green: 0.56, blue: 1.0))
+            .tint(Theme.Palette.arctic)
+            .preferredColorScheme(.dark)
             .modelContainer(appModel.container)
             .environment(appModel)
+            .environment(settings)
             .task {
                 await appModel.setupPipelineAsync()
             }

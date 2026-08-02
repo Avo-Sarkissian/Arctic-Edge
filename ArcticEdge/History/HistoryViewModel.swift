@@ -6,18 +6,20 @@
 // Groups runs by calendar day for section headers.
 // Geocodes resort name once per run (stored in RunRecord.resortName via PersistenceService).
 //
-// CLGeocoder rate limit defense:
-//   - Check RunSnapshot.resortName before calling CLGeocoder.
-//   - One shared CLGeocoder instance; sequential geocode calls (no concurrent).
-//   - Persist result to RunRecord.resortName via PersistenceService.
+// Reverse geocoding uses MapKit's MKReverseGeocodingRequest (CLGeocoder is
+// deprecated as of iOS 26). Rate limit defense:
+//   - Skip runs that already have a cached resortName.
+//   - Skip runs with no stored coordinate: there is nothing to resolve.
+//   - One request at a time, and the result is persisted so it never repeats.
 
 import Foundation
 import SwiftData
 import CoreLocation
+import MapKit
 
 // MARK: - Value types
 
-struct RunRow: Sendable, Identifiable {
+nonisolated struct RunRow: Sendable, Identifiable {
     let id: UUID          // runID
     let runID: UUID
     let startTimestamp: Date
@@ -25,14 +27,21 @@ struct RunRow: Sendable, Identifiable {
     let verticalDrop: Double?
     let duration: TimeInterval
     let resortName: String?
+    let carvingScore: Double?
+    let latitude: Double?
+    let longitude: Double?
 }
 
-struct DayGroup: Identifiable {
+nonisolated struct DayGroup: Identifiable {
     let id: Date          // day start (Calendar.current.startOfDay)
     let date: Date
     let resortName: String
     let runCount: Int
-    let totalVertical: Double
+    /// nil when no run that day measured vertical, so the header shows a dash
+    /// rather than claiming a zero-metre day.
+    let totalVertical: Double?
+    /// Mean carving score across the day's scored runs. nil when none scored.
+    let averageScore: Double?
     let runs: [RunRow]
 }
 
@@ -50,8 +59,9 @@ final class HistoryViewModel {
     private(set) var loadedCount: Int = 0
     private var allRows: [RunRow] = []
 
-    // Single shared geocoder — CLGeocoder is not thread-safe; keep on @MainActor.
-    private let geocoder = CLGeocoder()
+    // Runs already attempted this session, so a scrolling list does not fire
+    // repeat requests for a location that resolved to nothing.
+    private var geocodeAttempted: Set<UUID> = []
 
     init(pageSize: Int = 50) {
         self.pageSize = pageSize
@@ -85,7 +95,10 @@ final class HistoryViewModel {
                 topSpeed: snap.topSpeed,
                 verticalDrop: snap.verticalDrop,
                 duration: duration,
-                resortName: snap.resortName
+                resortName: snap.resortName,
+                carvingScore: snap.carvingScore,
+                latitude: snap.latitude,
+                longitude: snap.longitude
             )
         }
 
@@ -104,15 +117,19 @@ final class HistoryViewModel {
             grouped[dayStart, default: []].append(row)
         }
         dayGroups = grouped.keys.sorted(by: >).map { day in
-            let runs = grouped[day]!
-            let totalVertical = runs.compactMap { $0.verticalDrop }.reduce(0, +)
-            let resort = runs.first?.resortName ?? "Mountain Resort"
+            let runs = grouped[day]!.sorted { $0.startTimestamp < $1.startTimestamp }
+            let verticals = runs.compactMap { $0.verticalDrop }
+            let scores = runs.compactMap { $0.carvingScore }
+            // The first resolved name wins; runs before geocoding completes fall
+            // back to a neutral label rather than inventing a resort.
+            let resort = runs.compactMap { $0.resortName }.first ?? "Unnamed mountain"
             return DayGroup(
                 id: day,
                 date: day,
                 resortName: resort,
                 runCount: runs.count,
-                totalVertical: totalVertical,
+                totalVertical: verticals.isEmpty ? nil : verticals.reduce(0, +),
+                averageScore: scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count),
                 runs: runs
             )
         }
@@ -120,19 +137,24 @@ final class HistoryViewModel {
 
     // MARK: - Geocoding
 
-    // Geocode resort name for a run if not already cached in RunSnapshot.resortName.
-    // Persists the result back to RunRecord.resortName via PersistenceService.
-    // Safe to call from onAppear on individual rows — checks cache first.
+    // Resolves a resort name for a run from the coordinate captured while it was
+    // recorded. Persists the result so it is looked up at most once per run.
+    //
+    // This is what makes HIST-02 real. The method previously required a caller to
+    // supply a coordinate, no caller existed, and no coordinate was ever stored,
+    // so every history row read the same placeholder forever.
     func geocodeIfNeeded(
         runRow: RunRow,
-        coordinate: CLLocationCoordinate2D,
         persistenceService: any PersistenceServiceProtocol
     ) async {
-        guard runRow.resortName == nil else { return }  // Already cached
+        guard runRow.resortName == nil else { return }          // already cached
+        guard !geocodeAttempted.contains(runRow.runID) else { return }
+        guard let latitude = runRow.latitude, let longitude = runRow.longitude else { return }
+        geocodeAttempted.insert(runRow.runID)
 
-        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let placemark = try? await geocoder.reverseGeocode(location: location)
-        let name = resortNameFrom(placemark: placemark)
+        let location = CLLocation(latitude: latitude, longitude: longitude)
+        let name = await reverseGeocode(location: location)
+        guard let name else { return }
 
         try? await persistenceService.updateResortName(runID: runRow.runID, resortName: name)
 
@@ -146,7 +168,10 @@ final class HistoryViewModel {
                 topSpeed: old.topSpeed,
                 verticalDrop: old.verticalDrop,
                 duration: old.duration,
-                resortName: name
+                resortName: name,
+                carvingScore: old.carvingScore,
+                latitude: old.latitude,
+                longitude: old.longitude
             )
             rebuildDayGroups()
         }
@@ -154,32 +179,19 @@ final class HistoryViewModel {
 
     // MARK: - Resort name extraction
 
+    /// MapKit reverse geocode. Returns nil when nothing resolves, so the caller
+    /// leaves the name unset and can retry on a later launch.
+    private func reverseGeocode(location: CLLocation) async -> String? {
+        guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
+        guard let items = try? await request.mapItems, let item = items.first else { return nil }
+        return resortNameFrom(name: item.name, locality: item.address?.shortAddress)
+    }
+
     // Resort name priority: name (non-nil, non-numeric) > locality > fallback.
     // Overload accepting (name: String?, locality: String?) for unit tests.
     func resortNameFrom(name: String?, locality: String?) -> String {
         if let n = name, !n.isEmpty, !n.first!.isNumber { return n }
         if let l = locality, !l.isEmpty { return l }
-        return "Mountain Resort"
-    }
-
-    // CLPlacemark overload — thin wrapper over the testable (name:locality:) variant.
-    func resortNameFrom(placemark: CLPlacemark?) -> String {
-        resortNameFrom(name: placemark?.name, locality: placemark?.locality)
-    }
-}
-
-// MARK: - CLGeocoder async extension
-
-extension CLGeocoder {
-    func reverseGeocode(location: CLLocation) async throws -> CLPlacemark? {
-        try await withCheckedThrowingContinuation { continuation in
-            reverseGeocodeLocation(location) { placemarks, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: placemarks?.first)
-                }
-            }
-        }
+        return "Unnamed mountain"
     }
 }

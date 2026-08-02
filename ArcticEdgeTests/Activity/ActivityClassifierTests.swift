@@ -73,6 +73,17 @@ actor ClassifierMockPersistenceService: PersistenceServiceProtocol {
     }
 
     func updateResortName(runID: UUID, resortName: String) async throws {}
+
+    struct RetagCall: Sendable {
+        let fromUptime: TimeInterval
+        let toUptime: TimeInterval
+        let runID: UUID
+    }
+    private(set) var retagCalls: [RetagCall] = []
+
+    func retagFrames(fromUptime: TimeInterval, toUptime: TimeInterval, runID: UUID) async throws {
+        retagCalls.append(RetagCall(fromUptime: fromUptime, toUptime: toUptime, runID: runID))
+    }
 }
 
 // MARK: - TestClock
