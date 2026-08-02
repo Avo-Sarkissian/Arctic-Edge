@@ -36,6 +36,25 @@ struct SettingsView: View {
                     aboutSection
                 }
                 .scrollContentBackground(.hidden)
+                // Attached to the Form, not to the Section that owns the button.
+                // A presentation modifier on a Section is not reliably hoisted
+                // into the presentation hierarchy, so the dialog could fail to
+                // appear: a bad failure mode for the one confirmation standing
+                // between a tap and deleting every run the user has recorded.
+                .confirmationDialog(
+                    "Delete every run and its data?",
+                    isPresented: $showDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete everything", role: .destructive) {
+                        Task { await deleteAllData() }
+                    }
+                    .accessibilityIdentifier("settings.confirmDelete")
+                    Button("Keep my data", role: .cancel) {}
+                        .accessibilityIdentifier("settings.cancelDelete")
+                } message: {
+                    Text("This removes every recorded run, score, and motion frame. It cannot be undone.")
+                }
             }
             .navigationTitle("Settings")
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -163,20 +182,6 @@ struct SettingsView: View {
                 .foregroundStyle(Theme.Palette.textTertiary)
         }
         .listRowBackground(Theme.Palette.cardFill)
-        .confirmationDialog(
-            "Delete every run and its data?",
-            isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Delete everything", role: .destructive) {
-                Task { await deleteAllData() }
-            }
-            .accessibilityIdentifier("settings.confirmDelete")
-            Button("Keep my data", role: .cancel) {}
-                .accessibilityIdentifier("settings.cancelDelete")
-        } message: {
-            Text("This removes every recorded run, score, and motion frame. It cannot be undone.")
-        }
     }
 
     // MARK: - About
