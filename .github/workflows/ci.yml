@@ -57,6 +57,8 @@ jobs:
           fi
           echo "No warnings."
 
+      # Deliberately NO retry here. Unit tests are deterministic; one that needs
+      # a second attempt is telling you something and should not be silenced.
       - name: Unit tests
         run: |
           set -o pipefail
@@ -67,9 +69,16 @@ jobs:
             | tee unit-tests.log
 
       # UI tests relaunch the app per case and are slower, so they run last.
-      # Three cases fail on one developer machine with a harness snapshot
-      # timeout that does not reproduce as an app hang; this clean runner is the
-      # arbiter for whether that is environmental or real.
+      #
+      # These DO retry, for a specific and observed reason: the test runner
+      # periodically comes up unhealthy and the first case or two time out at
+      # 80-115s with "process main thread busy", after which the runner restarts
+      # and the identical build passes every case in 11-12s. The app is not the
+      # problem: launched via simctl it is up in about a second.
+      #
+      # A retry hides flakiness, so the scope is deliberate: three attempts, UI
+      # only. A case that fails all three is real. That is exactly how the
+      # delete-confirmation bug was caught rather than dismissed.
       - name: UI tests
         run: |
           set -o pipefail
@@ -77,6 +86,8 @@ jobs:
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
             -only-testing:ArcticEdgeUITests \
+            -retry-tests-on-failure \
+            -test-iterations 3 \
             | tee ui-tests.log
 
       - name: Upload logs
