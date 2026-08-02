@@ -14,19 +14,25 @@ concurrency:
 jobs:
   build-and-test:
     name: Build and test
-    runs-on: macos-15
-    timeout-minutes: 45
+    # macos-26 is required, not a preference: the app's deployment target is
+    # iOS 26.2, and macos-15 ships Xcode 16.4 whose newest simulator SDK is
+    # iOS 18.5. On that image every build fails before compiling a single file
+    # with "the range of supported deployment target versions is 12.0 to 18.5.99".
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      SCHEME: ArcticEdge
+      # Present in the iOS 26.2, 26.4, and 26.5 runtimes on this image.
+      DESTINATION: 'platform=iOS Simulator,name=iPhone 17 Pro'
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -switch /Applications/Xcode.app
-
       - name: Show toolchain
         run: |
           xcodebuild -version
-          swift --version
+          xcodebuild -showsdks | grep -i "ios" || true
 
       # Compile check first: it needs no simulator and fails fast on the most
       # common breakage. Strict concurrency is on for every target, so this also
@@ -35,7 +41,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -scheme ArcticEdge \
+            -scheme "$SCHEME" \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
@@ -55,19 +61,21 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -scheme ArcticEdge \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
             -only-testing:ArcticEdgeTests \
             | tee unit-tests.log
 
-      # UI tests relaunch the app per case and are slower, so they run last and
-      # are allowed to be the long pole rather than blocking earlier signal.
+      # UI tests relaunch the app per case and are slower, so they run last.
+      # Three cases fail on one developer machine with a harness snapshot
+      # timeout that does not reproduce as an app hang; this clean runner is the
+      # arbiter for whether that is environmental or real.
       - name: UI tests
         run: |
           set -o pipefail
           xcodebuild test \
-            -scheme ArcticEdge \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
             -only-testing:ArcticEdgeUITests \
             | tee ui-tests.log
 
