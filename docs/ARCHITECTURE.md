@@ -61,8 +61,20 @@ Resolved in the 2026-08-01 passes:
 7. **Dead features.** Resort geocoding, orphan run recovery, and calibration export all have callers now.
 8. **Retention.** Raw frames expire after 30 days and orphaned frames are dropped; runs and scores are kept.
 
-Still open:
+## Open limitations
 
-- **Anchor calibration.** `CarvingScoreModel.v1` anchors are literature derived. The score is labelled provisional until a labelled field data pass moves them. Export lives in Settings.
-- **On-mountain validation.** Nothing in this list has been confirmed on snow. Chairlift versus surface lift classification, cold weather battery behaviour, and background survival all need a real day.
-- **Per device normalisation.** Two phones in two pockets are not yet normalised against each other.
+These are known and unfixed. They are listed so nobody has to rediscover them.
+
+**1. Nothing is validated on snow.** Every claim in this document is verified in a simulator. Background capture with the screen locked, run segmentation against real chairlifts, and battery behaviour in the cold are all unproven. See [FIELD-VALIDATION.md](FIELD-VALIDATION.md) for the protocol that would settle it.
+
+**2. The score's absolute scale is provisional.** `CarvingScoreModel.v1` anchors come from published research ranges, not from labelled skiing. The version string carries a `-provisional` suffix and the UI shows it. Use the score to compare your own runs, not as a grade. Export from Settings is the path to fixing it.
+
+**3. Scores are not comparable between people or devices.** There is no per-device or per-pocket normalisation. A phone in a snug pants pocket and one in a loose jacket pocket see different signal amplitudes from identical skiing. Gravity projection makes the channels orientation-robust, which handles *rotation*, but not differences in coupling, damping, or how much the phone moves independently of the skier. Until that is characterised, treat cross-user comparison as meaningless. This is the main thing standing between the current app and any leaderboard or sharing feature.
+
+**4. Surface lifts are unclassified.** The classifier's chairlift detection leans on `CMMotionActivity` reporting automotive. A T-bar or poma drags a standing rider on skis: moderate speed, real IMU variance, and possibly no automotive signal. That can inject a phantom uphill run. Unproven either way.
+
+**5. Air time and re-pocketing corrupt their windows.** Gravity projection assumes a valid gravity estimate. During a jump, CoreMotion's gravity direction degrades and every projected channel is meaningless for that window. Pulling the phone out mid-run and putting it back produces a large transient that the smoothness and chatter metrics will read as terrible technique. Neither case is detected or excluded.
+
+**6. GPS speed is one scalar per flush batch.** `flushWithGPS` stamps a single fix onto every frame in the batch, so at 100 Hz that is one speed value across roughly two seconds. Accuracy gating now rejects bad fixes, but the temporal resolution of the speed channel is still much coarser than the metrics that consume it.
+
+**7. Cold shutdown is not modelled.** Power Saver is a battery-percentage threshold plus a thermal throttle. iPhones can shut down abruptly in the cold at a nominally healthy charge. There is no cold-specific behaviour and no "the phone died mid-run" recovery beyond generic orphan handling.
